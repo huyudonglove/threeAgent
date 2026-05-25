@@ -1,0 +1,12 @@
+{
+  "conversationId": "conv-001",
+  "createdAt": "2026-05-24T08:36:02.459Z",
+  "lastUpdatedAt": "2026-05-24T08:36:02.459Z",
+  "sharedPath": "shared.json",
+  "agents": [
+    {
+      "agentRole": "tech_lead",
+      "path": "roles/tech_lead.json"
+    }
+  ]
+}

@@ -1,0 +1,52 @@
+
+> agentthee@0.0.0 test
+> vitest run
+
+
+[1m[7m[36m RUN [39m[27m[22m [36mv2.1.9 [39m[90mD:/AICode/agentThee[39m
+
+ [32m鉁?[39m tests/contracts/status.test.ts [2m([22m[2m10 tests[22m[2m)[22m[90m 6[2mms[22m[39m
+ [32m鉁?[39m tests/integration/artifact-panel.test.ts [2m([22m[2m6 tests[22m[2m)[22m[90m 64[2mms[22m[39m
+ [32m鉁?[39m tests/integration/run-overview.test.ts [2m([22m[2m4 tests[22m[2m)[22m[90m 64[2mms[22m[39m
+ [31m鉂?[39m tests/integration/node-flow-and-evidence.test.ts [2m([22m[2m7 tests[22m[2m | [22m[31m2 failed[39m[2m)[22m[90m 212[2mms[22m[39m
+[31m   [31m脳[31m 鑺傜偣娴佽浆涓庤瘉鎹鏌?[2m > [22m鍥炴祦 鈫?鍒涘缓 BackflowRecord + 鑺傜偣鐘舵€侀噸缃?[90m 34[2mms[22m[31m[39m
+[31m     鈫?expected false to be true // Object.is equality[39m
+[31m   [31m脳[31m 鑺傜偣娴佽浆涓庤瘉鎹鏌?[2m > [22mDisplayTrace 璇佹嵁閾惧彲鏌ヨ[90m 29[2mms[22m[31m[39m
+[31m     鈫?expected 0 to be greater than 0[39m
+
+鈳幆鈳幆鈳幆鈳?[1m Failed Tests 2 鈳幆鈳幆鈳幆鈳?[39m
+
+ FAIL  tests/integration/node-flow-and-evidence.test.ts > 鑺傜偣娴佽浆涓庤瘉鎹鏌?[2m > 鍥炴祦 鈫?鍒涘缓 BackflowRecord + 鑺傜偣鐘舵€侀噸缃?AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ 鉂?[22m tests/integration/node-flow-and-evidence.test.ts:136:29
+    134|       targetType: 'product_manager',
+    135|     })
+    136|     expect(returnResult.ok).toBe(true)
+       |                             ^
+    137|     const ret = (returnResult as any).data
+    138| 
+
+鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆[1/2]鈳?[22m
+
+ FAIL  tests/integration/node-flow-and-evidence.test.ts > 鑺傜偣娴佽浆涓庤瘉鎹鏌?[2m > DisplayTrace 璇佹嵁閾惧彲鏌ヨ
+AssertionError: expected 0 to be greater than 0
+ 鉂?[22m tests/integration/node-flow-and-evidence.test.ts:162:27
+    160|     const events = (traceResult as any).data
+    161|     // 鑷冲皯鏈?task_created + node_started + node_completed + node_star鈥?    162|     expect(events.length).toBeGreaterThan(0)
+       |                           ^
+    163|   })
+    164| 
+
+鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆[2/2]鈳?[22m
+
+[2m Test Files [22m [1m[31m1 failed[39m[22m[2m | [22m[1m[32m3 passed[39m[22m[90m (4)[39m
+[2m      Tests [22m [1m[31m2 failed[39m[22m[2m | [22m[1m[32m25 passed[39m[22m[90m (27)[39m
+[2m   Start at [22m 16:12:14
+[2m   Duration [22m 1.19s[2m (transform 463ms, setup 0ms, collect 1.05s, tests 347ms, environment 1ms, prepare 556ms)[22m
+

@@ -1,10 +1,15 @@
 import { createApp } from 'vue'
 import './style.css'
 import App from './App.vue'
+import router from './router'
 
-createApp(App).mount('#app').$nextTick(() => {
-  // Use contextBridge
-  window.ipcRenderer.on('main-process-message', (_event, message) => {
-    console.log(message)
+const app = createApp(App)
+app.use(router)
+app.mount('#app')
+
+import { nextTick } from 'vue'
+nextTick(() => {
+  window.agentAPI?.onMainProcessMessage((message) => {
+    console.log('[main-process]', message)
   })
 })
