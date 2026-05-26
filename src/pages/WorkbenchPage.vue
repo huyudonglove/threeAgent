@@ -47,11 +47,10 @@ const {
   completeTaskWorkflowNode,
   blockTaskWorkflowNode,
   createConversation,
-  // submitInput is now replaced by understandInput + confirmAndStart flow
-  // submitInput,
+  closeConversation,
+  submitInput,
   // 任务草案
   taskDraft,
-  understandInput,
   confirmAndStart,
   cancelDraft,
   // 恢复/继续入口
@@ -247,6 +246,7 @@ type DetailTab = 'node' | 'artifacts' | 'runtime' | 'memory' | 'risk'
 
 // ─── 对话框状态：标记完成 ───
 const showCompleteConfirm = ref(false)
+const conversationToClose = ref<typeof conversations.value[0] | null>(null)
 
 // ─── 对话框状态：需要处理 ───
 const showBlockDialog = ref(false)
@@ -345,11 +345,23 @@ async function handleAdvance() {
   const rootPath = activeWorkspace.value?.rootPath ?? ''
   const taskId = activeTask.value?.id ?? ''
   if (!rootPath || !taskId) return
-  await advanceTaskWorkflow(rootPath, taskId)
+  actionFeedback.value = null
+  const result = await advanceTaskWorkflow(rootPath, taskId)
+  if (!result?.ok) {
+    actionFeedback.value = {
+      type: 'error',
+      message: result?.error?.message ?? '推进失败，请检查当前任务状态。',
+    }
+    return
+  }
   await loadWorkflowContext(taskId)
   const convRootPath = rootPath
   const tid = activeTask.value?.id ?? ''
   if (tid) await loadTask(convRootPath, tid)
+  if (activeConversation.value?.id) {
+    await loadTraceSummary(rootPath, activeConversation.value.id)
+  }
+  actionFeedback.value = { type: 'success', message: '已推进到下一步。' }
 }
 
 async function handleCompleteNode() {
@@ -412,16 +424,50 @@ async function handleCreateConversation(payload: Record<string, string>) {
 
 const inputText = ref('')
 const submitting = ref(false)
-const understanding = ref(false)
+const submitFeedback = ref<{ type: 'success' | 'error'; message: string } | null>(null)
+const actionFeedback = ref<{ type: 'success' | 'error'; message: string } | null>(null)
 
 async function handleSubmitInput() {
   const raw = inputText.value.trim()
-  if (!raw || understanding.value) return
-  understanding.value = true
+  if (!raw || submitting.value) return
+
+  if (!activeWorkspace.value) {
+    await handleOpenWorkspace()
+    if (!activeWorkspace.value) return
+  }
+
+  submitting.value = true
+  submitFeedback.value = null
   try {
-    await understandInput(raw)
+    const result = await submitInput(raw)
+    if (result?.ok && result.data && activeWorkspace.value && activeConversation.value) {
+      await processTurnEnd(
+        activeWorkspace.value.rootPath,
+        activeConversation.value.id,
+        { userInput: raw, agentOutput: '' },
+      )
+    }
+    if (result?.ok) {
+      inputText.value = ''
+      submitFeedback.value = { type: 'success', message: '任务已启动，工作台已切换到新任务。' }
+    } else {
+      const message = result?.error?.message ?? '任务启动失败，请稍后重试。'
+      submitFeedback.value = { type: 'error', message }
+    }
+  } catch (e) {
+    submitFeedback.value = { type: 'error', message: `任务启动失败：${e}` }
   } finally {
-    understanding.value = false
+    submitting.value = false
+  }
+}
+
+async function handleCloseConversation() {
+  const conversation = conversationToClose.value
+  const rootPath = activeWorkspace.value?.rootPath ?? ''
+  if (!conversation || !rootPath) return
+  const result = await closeConversation(rootPath, conversation.id)
+  if (result.ok) {
+    conversationToClose.value = null
   }
 }
 
@@ -452,7 +498,7 @@ function handleCancelDraft() {
 /**
  * P2-MAIN-01: 从结果页继续 - 调用后端生成结构化任务草案
  */
-async function handleContinueFromResultDraft(resultId: string, taskId: string, fallbackTitle?: string) {
+async function handleContinueFromResultDraft(resultId: string, _taskId: string, fallbackTitle?: string) {
   const rootPath = activeWorkspace.value?.rootPath
   if (!rootPath || !resultId) return
 
@@ -538,6 +584,11 @@ const techDetailExpanded = ref(false)
           关注任务进度、产出和可继续性，让每一步都有据可查。
         </p>
       </div>
+      <p
+        v-if="submitFeedback"
+        class="submit-feedback"
+        :class="`feedback-${submitFeedback.type}`"
+      >{{ submitFeedback.message }}</p>
 
       <div class="topbar-actions">
         <div class="search-shell">
@@ -546,16 +597,16 @@ const techDetailExpanded = ref(false)
             class="quick-input"
             type="text"
             placeholder="描述你的任务需求..."
-            :disabled="understanding || submitting || !activeWorkspace"
+            :disabled="submitting"
             @keyup.enter="handleSubmitInput"
           />
         </div>
         <button
           class="primary-button"
           type="button"
-          :disabled="understanding || submitting || !inputText.trim() || !activeWorkspace"
+          :disabled="submitting || !inputText.trim()"
           @click="handleSubmitInput"
-        >{{ understanding ? '理解中...' : '分析任务' }}</button>
+        >{{ submitting ? '启动中...' : activeWorkspace ? '启动任务' : '选择工作区' }}</button>
         <button
           v-if="canResume"
           class="secondary-button"
@@ -634,12 +685,20 @@ const techDetailExpanded = ref(false)
           >
             <div class="select-card-head">
               <strong>{{ conversation.title }}</strong>
-              <span>{{ conversation.taskDomain ?? '' }}</span>
+              <span class="conversation-domain">{{ conversation.taskDomain ?? '' }}</span>
             </div>
             <p>{{ conversation.taskType }}</p>
-            <span class="badge" :class="`badge-${conversation.status}`">
-              {{ statusLabelMap[conversation.status] }}
-            </span>
+            <div class="conversation-card-footer">
+              <span class="badge" :class="`badge-${conversation.status}`">
+                {{ statusLabelMap[conversation.status] }}
+              </span>
+              <button
+                class="icon-button danger-icon-button"
+                type="button"
+                title="关闭会话"
+                @click.stop="conversationToClose = conversation"
+              >×</button>
+            </div>
           </button>
         </section>
 
@@ -863,6 +922,12 @@ const techDetailExpanded = ref(false)
               </div>
             </div>
 
+            <p
+              v-if="actionFeedback"
+              class="action-feedback"
+              :class="`feedback-${actionFeedback.type}`"
+            >{{ actionFeedback.message }}</p>
+
             <div class="workflow-list">
               <button
                 v-for="node in workflowNodes"
@@ -893,23 +958,47 @@ const techDetailExpanded = ref(false)
           <div class="section-group-header">
             <span class="section-group-icon">📦</span>
             <h2 class="section-group-title">产出</h2>
-            <span class="section-group-desc">本次任务已产出的成果</span>
+            <span class="section-group-desc">{{ artifacts.length }} 个成果文件</span>
           </div>
 
           <article class="artifacts-panel glass-panel">
-            <div class="detail-stack">
-              <article v-if="artifacts.length === 0" class="detail-card">
-                <p>暂无产出，任务执行过程中将自动记录。</p>
+            <div class="artifact-panel-head">
+              <div>
+                <p class="eyebrow">成果清单</p>
+                <h3>任务过程中沉淀的文件和结果</h3>
+              </div>
+              <span class="artifact-count">{{ artifacts.length }}</span>
+            </div>
+
+            <div class="artifact-list">
+              <article v-if="artifacts.length === 0" class="artifact-empty">
+                <strong>还没有可查看的产出</strong>
+                <p>当你推进或完成工作流节点后，系统会在这里列出生成的报告、计划、总结或验收结果。</p>
               </article>
-              <article v-for="artifact in artifacts" :key="artifact.id" class="detail-card">
-                <div class="detail-title-row">
+
+              <article v-for="artifact in artifacts" :key="artifact.id" class="artifact-item">
+                <div class="artifact-main">
+                  <span class="artifact-type">{{ artifact.type }}</span>
                   <strong>{{ artifact.title }}</strong>
+                  <p>{{ artifact.summary || artifact.previewText || artifact.path || '内容已写入工作区产物库' }}</p>
+                </div>
+
+                <div class="artifact-meta-grid">
+                  <div>
+                    <span>来源步骤</span>
+                    <strong>{{ artifact.node || '未标注' }}</strong>
+                  </div>
+                  <div>
+                    <span>更新时间</span>
+                    <strong>{{ artifact.updatedAt }}</strong>
+                  </div>
+                  <div>
+                    <span>状态</span>
                   <span class="badge" :class="`badge-${artifact.status}`">
                     {{ statusLabelMap[artifact.status] }}
                   </span>
+                  </div>
                 </div>
-                <p>{{ artifact.type }} · {{ artifact.node }}</p>
-                <span class="meta-inline">更新于 {{ artifact.updatedAt }}</span>
               </article>
             </div>
           </article>
@@ -1050,6 +1139,18 @@ const techDetailExpanded = ref(false)
       message="确认将当前节点标记为已完成？"
       confirm-text="确认完成"
       @confirm="handleCompleteNode"
+    />
+
+    <!-- 关闭会话确认对话框 -->
+    <ConfirmDialog
+      :visible="!!conversationToClose"
+      title="关闭会话"
+      :message="`确认关闭会话「${conversationToClose?.title ?? ''}」？任务、产物和记忆会保留，只从当前会话列表隐藏。`"
+      confirm-text="关闭会话"
+      danger
+      @confirm="handleCloseConversation"
+      @cancel="conversationToClose = null"
+      @update:visible="(value) => { if (!value) conversationToClose = null }"
     />
 
     <!-- 需要处理 表单对话框 -->

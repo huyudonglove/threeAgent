@@ -21,7 +21,7 @@ interface KeywordRule {
 
 const KEYWORD_RULES: KeywordRule[] = [
   {
-    keywords: ['调研', '研究', '分析', '查找', '搜索'],
+    keywords: ['调研', '预研', '研究', '分析', '查找', '搜索'],
     taskType: 'research',
     taskDomain: 'research',
   },

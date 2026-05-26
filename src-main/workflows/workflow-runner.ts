@@ -165,6 +165,8 @@ export class WorkflowRunner {
     conversationId: string
     taskDomain: string
     title: string
+    rawInput?: string
+    userGoal?: string
     operatorRole: string
   }): Promise<Result<WorkflowExecutionContext>> {
     // 1. 解析 workflow
@@ -193,7 +195,10 @@ export class WorkflowRunner {
       input.conversationId,
       {
         title: input.title,
+        rawInput: input.rawInput,
+        userGoal: input.userGoal,
         owner: input.operatorRole,
+        currentNodeId: firstNode.id,
         currentNodeName: firstNode.name,
         workflowId: workflow.id,
         domainName: workflow.taskDomain,
@@ -220,6 +225,7 @@ export class WorkflowRunner {
     await this.conversationManager.update(input.workspaceRootPath, input.conversationId, {
       currentTaskId: task.id,
       currentWorkflowId: workflow.id,
+      currentNodeId: firstNode.id,
       currentNodeName: firstNode.name,
       taskDomain: input.taskDomain,
     })
@@ -363,10 +369,11 @@ export class WorkflowRunner {
     const nextNode = context.workflow.nodes.find(n => n.id === nextNodeId)!
 
     // 5. 更新 TaskRuntime
-    await this.taskManager.setCurrentNode(input.workspaceRootPath, input.taskId, nextNode.name)
+    await this.taskManager.setCurrentNode(input.workspaceRootPath, input.taskId, nextNode.id, nextNode.name)
 
     // 6. 更新 ConversationRuntime
     await this.conversationManager.update(input.workspaceRootPath, context.conversationId, {
+      currentNodeId: nextNode.id,
       currentNodeName: nextNode.name,
     })
 
@@ -551,7 +558,7 @@ export class WorkflowRunner {
     await this.backflowManager.append(input.workspaceRootPath, backflowRecord)
 
     // 5. 更新 TaskRuntime
-    await this.taskManager.setCurrentNode(input.workspaceRootPath, input.taskId, toNode.name)
+    await this.taskManager.setCurrentNode(input.workspaceRootPath, input.taskId, toNode.id, toNode.name)
 
     // 如果 task 之前是 blocked，恢复为 running
     const taskReadResult = await this.taskManager.read(input.workspaceRootPath, input.taskId)
@@ -561,6 +568,7 @@ export class WorkflowRunner {
 
     // 更新 ConversationRuntime
     await this.conversationManager.update(input.workspaceRootPath, context.conversationId, {
+      currentNodeId: toNode.id,
       currentNodeName: toNode.name,
     })
 
@@ -732,8 +740,9 @@ export class WorkflowRunner {
           context.nodeStates = activateResult.data
           const nextNode = context.workflow.nodes.find(n => n.id === nextNodeId)!
 
-          await this.taskManager.setCurrentNode(input.workspaceRootPath, input.taskId, nextNode.name)
+          await this.taskManager.setCurrentNode(input.workspaceRootPath, input.taskId, nextNode.id, nextNode.name)
           await this.conversationManager.update(input.workspaceRootPath, context.conversationId, {
+            currentNodeId: nextNode.id,
             currentNodeName: nextNode.name,
           })
 

@@ -26,6 +26,11 @@ const router = createRouter({
       component: () => import('../pages/ModelConfigPage.vue'),
     },
     {
+      path: '/model-lab',
+      name: 'model-lab',
+      component: () => import('../pages/ModelOutputLabPage.vue'),
+    },
+    {
       path: '/results',
       name: 'results',
       component: () => import('../pages/ResultsPage.vue'),

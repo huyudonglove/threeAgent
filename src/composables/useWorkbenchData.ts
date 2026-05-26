@@ -56,9 +56,12 @@ export interface ArtifactInfo {
   title: string
   type: string
   node: string
+  producedByNodeId?: string | null
   taskId: string
   status: string
   path: string
+  summary?: string
+  previewText?: string
   createdAt: string
   updatedAt: string
 }
@@ -178,10 +181,19 @@ interface RawWorkflowNode {
   blockedReason?: string
 }
 
+interface RawNodeState {
+  nodeId: string
+  nodeName: string
+  state: string
+  role: string
+}
+
 interface WorkflowContext {
   taskId?: string
   workflowId?: string
   currentNodeName?: string
+  workflow?: { nodes?: RawWorkflowNode[] }
+  nodeStates?: RawNodeState[]
   nodes?: RawWorkflowNode[]
 }
 
@@ -330,12 +342,12 @@ export function useWorkbenchData() {
               })
             }
           }
-          conversations.value = loaded
+          conversations.value = loaded.filter((conv) => conv.status !== 'closed')
 
           // 自动选中第一条会话
-          if (loaded.length > 0 && !activeConversation.value) {
-            activeConversation.value = loaded[0]
-            const taskId = loaded[0].currentTaskId
+          if (conversations.value.length > 0 && !activeConversation.value) {
+            activeConversation.value = conversations.value[0]
+            const taskId = conversations.value[0].currentTaskId
             if (taskId) {
               await loadTask(rootPath, taskId)
               await loadArtifacts(rootPath, taskId)
@@ -358,6 +370,32 @@ export function useWorkbenchData() {
       const conv = result.data as ConversationInfo
       conversations.value.push(conv)
       activeConversation.value = conv
+    }
+    return result
+  }
+
+  async function closeConversation(rootPath: string, conversationId: string) {
+    const result = await api.closeConversation(rootPath, conversationId)
+    if (result.ok) {
+      conversations.value = conversations.value.filter((conv) => conv.id !== conversationId)
+      if (activeConversation.value?.id === conversationId) {
+        activeConversation.value = conversations.value[0] ?? null
+        activeTask.value = null
+        artifacts.value = []
+        traceEvents.value = []
+        workflowNodes.value = []
+        stages.value = []
+        memories.value = []
+        risks.value = []
+        if (activeConversation.value?.currentTaskId) {
+          await loadTask(rootPath, activeConversation.value.currentTaskId)
+          await loadArtifacts(rootPath, activeConversation.value.currentTaskId)
+          await loadWorkflowContext(activeConversation.value.currentTaskId)
+          await loadTraceSummary(rootPath, activeConversation.value.id)
+          await loadMemories(rootPath, activeConversation.value.id)
+        }
+      }
+      computeMetrics()
     }
     return result
   }
@@ -413,14 +451,15 @@ export function useWorkbenchData() {
     const result = await api.getWorkflowContext(taskId)
     if (result.ok && result.data) {
       const ctx = result.data as WorkflowContext
-      const rawNodes: RawWorkflowNode[] = ctx.nodes ?? []
+      const rawNodes: RawWorkflowNode[] = ctx.nodes ?? ctx.workflow?.nodes ?? []
+      const nodeStateById = new Map((ctx.nodeStates ?? []).map((state) => [state.nodeId, state]))
 
       // 构建 workflowNodes
       workflowNodes.value = rawNodes.map((n, idx) => ({
         id: n.id ?? `node_${idx}`,
         name: n.name ?? '',
         role: n.role ?? '',
-        status: normalizeNodeStatus(n),
+        status: normalizeNodeStatus(n, nodeStateById.get(n.id ?? '')),
         summary: n.summary ?? '',
         reason: n.reason ?? n.blockedReason ?? '',
         outputs: n.outputs ?? [],
@@ -428,8 +467,8 @@ export function useWorkbenchData() {
         tools: n.tools ?? [],
       }))
 
-      // 从节点派生 stages
-      stages.value = deriveStages(rawNodes, ctx.currentNodeName)
+      // 从合并后的节点状态派生 stages，避免后端 nodeStates 已变化但页面仍显示旧模板状态。
+      stages.value = deriveStages(workflowNodes.value, ctx.currentNodeName)
 
       computeMetrics()
     }
@@ -476,19 +515,19 @@ export function useWorkbenchData() {
     return result
   }
 
-  function normalizeNodeStatus(n: RawWorkflowNode): WorkflowNodeSummary['status'] {
-    const s = (n.status ?? '').toLowerCase()
+  function normalizeNodeStatus(n: RawWorkflowNode, nodeState?: RawNodeState): WorkflowNodeSummary['status'] {
+    const s = nodeState?.state?.toLowerCase() ?? (n.status ?? '').toLowerCase()
     if (s === 'done' || s === 'completed') return 'done'
     if (s === 'running' || s === 'active' || s === 'in_progress') return 'running'
     if (s === 'blocked' || n.blocked) return 'blocked'
     return 'queued'
   }
 
-  function deriveStages(nodes: RawWorkflowNode[], currentNodeName?: string): StageSummary[] {
+  function deriveStages(nodes: WorkflowNodeSummary[], currentNodeName?: string): StageSummary[] {
     let passedCurrent = false
     return nodes.map((n, idx) => {
-      const name = n.name ?? `Stage ${idx + 1}`
-      const status = normalizeNodeStatus(n)
+      const name = n.name || `Stage ${idx + 1}`
+      const status = n.status
       let state: StageSummary['state']
 
       if (status === 'done') {
@@ -504,7 +543,7 @@ export function useWorkbenchData() {
         state = passedCurrent ? 'upcoming' : 'done'
       }
 
-      return { id: n.id ?? `stage_${idx}`, name, state }
+      return { id: n.id || `stage_${idx}`, name, state }
     })
   }
 
@@ -763,13 +802,14 @@ export function useWorkbenchData() {
     const rootPath = activeWorkspace.value.rootPath
     const result = await api.understandAndStart(rootPath, rawInput)
     if (result.ok && result.data) {
+      const started = result.data
       // 刷新会话列表
       await loadConversations(rootPath)
-      // 选中新创建的会话（列表最后一个，即刚创建的）
-      if (conversations.value.length > 0) {
-        const newConv = conversations.value[conversations.value.length - 1]
+      // 按后端返回的 conversationId 精准选中新创建的会话
+      const newConv = conversations.value.find((conv) => conv.id === started.conversationId)
+      if (newConv) {
         activeConversation.value = newConv
-        const taskId = result.data.taskId
+        const taskId = started.taskId
         if (taskId) {
           await loadTask(rootPath, taskId)
           await loadArtifacts(rootPath, taskId)
@@ -855,6 +895,7 @@ export function useWorkbenchData() {
     createWorkspace,
     loadConversations,
     createConversation,
+    closeConversation,
     loadTask,
     loadArtifacts,
     loadTraceSummary,

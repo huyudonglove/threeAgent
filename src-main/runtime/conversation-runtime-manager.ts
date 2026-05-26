@@ -61,8 +61,10 @@ export class ConversationRuntimeManager {
       status: 'active',
       currentTaskId: null,
       currentWorkflowId: null,
+      currentNodeId: null,
       currentNodeName: null,
       taskDomain: input.taskDomain ?? null,
+      closedAt: null,
       createdAt: now,
       updatedAt: now,
     }
@@ -97,7 +99,11 @@ export class ConversationRuntimeManager {
         detail: result.error,
       }))
     }
-    return ok(result.data)
+    return ok({
+      ...result.data,
+      currentNodeId: result.data.currentNodeId ?? null,
+      closedAt: result.data.closedAt ?? null,
+    })
   }
 
   /**

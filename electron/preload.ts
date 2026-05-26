@@ -30,6 +30,9 @@ contextBridge.exposeInMainWorld('agentAPI', {
   createConversation: (rootPath: string, title: string, taskType: string, taskDomain?: string): Promise<Result<unknown>> =>
     ipcRenderer.invoke('conversation:create', rootPath, title, taskType, taskDomain),
 
+  closeConversation: (rootPath: string, conversationId: string): Promise<Result<unknown>> =>
+    ipcRenderer.invoke('conversation:close', rootPath, conversationId),
+
   // ─── 任务运行态 ───
   getTaskRuntime: (rootPath: string, taskId: string): Promise<Result<unknown>> =>
     ipcRenderer.invoke('task-runtime:get', rootPath, taskId),
@@ -63,6 +66,9 @@ contextBridge.exposeInMainWorld('agentAPI', {
 
   getBlockedTasks: (rootPath: string): Promise<Result<{ taskId: string; title: string; blockReason: string; blockedSince: string; conversationId: string; workspaceRootPath: string }[]>> =>
     ipcRenderer.invoke('workspace:blocked-tasks', rootPath),
+
+  getWorkbenchCurrentState: (rootPath: string, conversationId?: string): Promise<Result<unknown>> =>
+    ipcRenderer.invoke('workbench:get-current-state', rootPath, conversationId),
 
   // ─── 模型配置 ───
   /** @deprecated 使用应用级 API readAppModelConfig 代替 */
@@ -209,6 +215,31 @@ contextBridge.exposeInMainWorld('agentAPI', {
 
   getAppModelConfigState: (): Promise<Result<{ state: string; blockedReason: string | null }>> =>
     ipcRenderer.invoke('app-model-config:state'),
+
+  // ─── 模型输出实验 ───
+  modelLabInvoke: (input: Record<string, unknown>): Promise<Result<unknown>> =>
+    ipcRenderer.invoke('model-lab:invoke', input),
+
+  modelLabRunParameterSweep: (input: Record<string, unknown>): Promise<Result<unknown>> =>
+    ipcRenderer.invoke('model-lab:run-parameter-sweep', input),
+
+  modelLabRunConsistencyTest: (input: Record<string, unknown>): Promise<Result<unknown>> =>
+    ipcRenderer.invoke('model-lab:run-consistency-test', input),
+
+  modelLabValidateOutput: (input: Record<string, unknown>): Promise<Result<unknown>> =>
+    ipcRenderer.invoke('model-lab:validate-output', input),
+
+  modelLabListPromptTemplates: (): Promise<Result<unknown>> =>
+    ipcRenderer.invoke('model-lab:list-prompt-templates'),
+
+  modelLabSavePromptTemplate: (input: Record<string, unknown>): Promise<Result<unknown>> =>
+    ipcRenderer.invoke('model-lab:save-prompt-template', input),
+
+  modelLabDeletePromptTemplate: (input: Record<string, unknown>): Promise<Result<unknown>> =>
+    ipcRenderer.invoke('model-lab:delete-prompt-template', input),
+
+  modelLabListRuns: (limit?: number): Promise<Result<unknown>> =>
+    ipcRenderer.invoke('model-lab:list-runs', limit),
 
   // ─── 产物服务 ───
   createArtifact: (input: Record<string, unknown>): Promise<Result<unknown>> =>

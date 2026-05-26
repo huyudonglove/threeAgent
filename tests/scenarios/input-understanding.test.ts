@@ -28,6 +28,15 @@ describe('InputUnderstandingService 场景测试', () => {
     }
   })
 
+  it('含"预研"关键词 → taskDomain 为 research', () => {
+    const result = service.understand('帮我预研下vue')
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.data.taskDomain).toBe('research')
+      expect(result.data.workflowId).toBe('research-prestudy')
+    }
+  })
+
   it('含"分析"关键词 → taskDomain 为 research', () => {
     const result = service.understand('分析当前系统瓶颈')
     expect(result.ok).toBe(true)

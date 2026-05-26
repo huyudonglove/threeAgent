@@ -68,6 +68,7 @@ export type ErrorCode =
   // 模型运行时
   | 'MODEL_ADAPTER_NOT_FOUND'
   | 'MODEL_INVOKE_FAILED'
+  | 'MODEL_OUTPUT_PARSE_FAILED'
   | 'MODEL_API_KEY_MISSING'
   | 'MODEL_API_KEY_NOT_FOUND'
   // 密钥

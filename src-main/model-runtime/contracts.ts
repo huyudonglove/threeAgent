@@ -43,6 +43,12 @@ export interface ToolDefinition {
   }
 }
 
+export type ToolChoice =
+  | 'auto'
+  | 'none'
+  | 'required'
+  | { type: 'function'; function: { name: string } }
+
 // ═══════════════════════════════════════════════════════════════
 // 调用输入
 // ═══════════════════════════════════════════════════════════════
@@ -64,12 +70,34 @@ export interface ModelInvokeInput {
   stream?: boolean
   /** 工具定义 */
   tools?: ToolDefinition[]
+  /** 工具选择策略 */
+  toolChoice?: ToolChoice
+  /** 输出格式。Agent 默认要求 JSON，只有显式 legacy-text 才允许自由文本。 */
+  responseFormat?: 'json_object' | 'legacy_text'
+  /** JSON 输出的意图说明，用于提示模型保持稳定结构。 */
+  outputContract?: string
   /** 扩展元数据 */
   metadata?: Record<string, unknown>
   /** 温度 */
   temperature?: number
+  /** nucleus sampling */
+  topP?: number
   /** 最大 token 数 */
   maxTokens?: number
+  /** 调用超时毫秒 */
+  timeoutMs?: number
+  /** 可复现实验 seed，仅部分 provider 支持 */
+  seed?: number | null
+  /** presence penalty */
+  presencePenalty?: number
+  /** frequency penalty */
+  frequencyPenalty?: number
+  /** stop sequences */
+  stop?: string[]
+  /** reasoning effort，仅部分模型支持 */
+  reasoningEffort?: string
+  /** 服务商专属扩展 body，仅由明确支持的 provider/model 使用 */
+  providerSpecific?: Record<string, unknown>
   /** 解析后的模型配置（若不传则内部解析） */
   resolvedProfile?: ResolvedModelProfile
   /** API Key（若不传则从 SecretStore 获取） */
@@ -88,6 +116,8 @@ export interface ModelInvokeOutput {
   modelId: string
   /** 生成文本 */
   content: string
+  /** JSON-only 模式下解析后的结构化对象 */
+  parsedJson?: unknown
   /** 推理过程文本（若模型支持） */
   reasoningContent?: string
   /** 工具调用（若模型返回） */

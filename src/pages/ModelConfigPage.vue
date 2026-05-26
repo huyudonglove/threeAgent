@@ -330,7 +330,7 @@ const defaultCallParams = ref<DefaultCallParams>({
   timeout_ms: 30000,
   retry_count: 1,
   reasoning_effort: 'auto',
-  response_format: 'text',
+  response_format: 'json_object',
   tool_calling: false,
 })
 
@@ -382,11 +382,6 @@ function onMaxTokensPresetChange(key: string) {
     case 'max': editingParams.value.max_tokens = maxOut; break
     case 'custom': break
   }
-}
-
-/** 获取某个模型的有效调用参数（自定义覆盖 → 全局默认） */
-function getEffectiveModelParams(modelId: string): DefaultCallParams {
-  return perModelCallParams.value[modelId] ?? defaultCallParams.value
 }
 
 /** 打开模型的高级参数编辑面板 */
@@ -517,10 +512,6 @@ function getCapabilityLabel(key: string): string {
 
 function getScenarioIcon(role: string): string {
   return ROLE_SCENARIO_MAP[role]?.icon ?? '📌'
-}
-
-function getScenarioDescription(role: string): string {
-  return ROLE_SCENARIO_MAP[role]?.description ?? ''
 }
 
 /** 获取绑定使用的模型名称 */
@@ -745,15 +736,6 @@ const newModel = ref({
   description: '',
   capabilities: [] as string[],
   contextWindow: 128000,
-})
-
-const showAddBinding = ref(false)
-const newBinding = ref({
-  id: '',
-  role: '',
-  modelId: '',
-  providerId: '',
-  scope: 'global' as string,
 })
 
 // ─── 计算属性 ───
@@ -1648,6 +1630,9 @@ onMounted(() => {
             >
               {{ modelTestBusy ? '测试中...' : '🧪 模型调用测试' }}
             </button>
+            <button class="secondary-button" type="button" @click="router.push('/model-lab')">
+              输出实验
+            </button>
           </div>
         </div>
 
@@ -1927,10 +1912,9 @@ onMounted(() => {
                 <div class="param-field">
                   <label class="param-label">response_format</label>
                   <select v-model="editingParams.response_format" class="param-input" :disabled="editingParamsMode === 'global'">
-                    <option value="text">text（普通文本）</option>
                     <option value="json_object">json_object（JSON）</option>
                   </select>
-                  <span class="param-hint">输出格式控制</span>
+                  <span class="param-hint">Agent 输出必须是可解析 JSON</span>
                 </div>
               </div>
             </div>

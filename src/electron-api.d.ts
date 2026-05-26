@@ -18,6 +18,7 @@ export interface AgentAPI {
   listConversations(rootPath: string): Promise<AgentAPIResult<string[]>>
   getConversation: (rootPath: string, conversationId: string) => Promise<AgentAPIResult<unknown>>
   createConversation: (rootPath: string, title: string, taskType: string, taskDomain?: string) => Promise<AgentAPIResult<unknown>>
+  closeConversation: (rootPath: string, conversationId: string) => Promise<AgentAPIResult<unknown>>
 
   // ─── 任务运行态 ───
   getTaskRuntime: (rootPath: string, taskId: string) => Promise<AgentAPIResult<unknown>>
@@ -36,6 +37,7 @@ export interface AgentAPI {
   // ─── 首页聚合查询 ───
   getRecentTasks: (rootPath: string) => Promise<AgentAPIResult<{ taskId: string; title: string; status: string; lastUpdated: string; currentNodeLabel: string; conversationId: string; workspaceRootPath: string }[]>>
   getBlockedTasks: (rootPath: string) => Promise<AgentAPIResult<{ taskId: string; title: string; blockReason: string; blockedSince: string; conversationId: string; workspaceRootPath: string }[]>>
+  getWorkbenchCurrentState: (rootPath: string, conversationId?: string) => Promise<AgentAPIResult<unknown>>
 
   // ─── 模型配置 ───
   /** @deprecated 使用应用级 API 代替 */
@@ -165,6 +167,16 @@ export interface AgentAPI {
   }>>>
 
   getAppModelConfigState: () => Promise<AgentAPIResult<{ state: string; blockedReason: string | null }>>
+
+  // ─── 模型输出实验 ───
+  modelLabInvoke: (input: Record<string, unknown>) => Promise<AgentAPIResult<unknown>>
+  modelLabRunParameterSweep: (input: Record<string, unknown>) => Promise<AgentAPIResult<unknown>>
+  modelLabRunConsistencyTest: (input: Record<string, unknown>) => Promise<AgentAPIResult<unknown>>
+  modelLabValidateOutput: (input: Record<string, unknown>) => Promise<AgentAPIResult<unknown>>
+  modelLabListPromptTemplates: () => Promise<AgentAPIResult<unknown>>
+  modelLabSavePromptTemplate: (input: Record<string, unknown>) => Promise<AgentAPIResult<unknown>>
+  modelLabDeletePromptTemplate: (input: Record<string, unknown>) => Promise<AgentAPIResult<unknown>>
+  modelLabListRuns: (limit?: number) => Promise<AgentAPIResult<unknown>>
 
   // ─── 产物服务 ───
   createArtifact: (input: Record<string, unknown>) => Promise<AgentAPIResult<unknown>>

@@ -69,6 +69,7 @@ export class ModelInvokeService {
       // 4. 构建完整调用输入
       const invokeInput: ModelInvokeInput = {
         ...input,
+        responseFormat: input.responseFormat ?? 'json_object',
         resolvedProfile: profile,
         apiKey,
       }
@@ -84,7 +85,17 @@ export class ModelInvokeService {
 
       // 6. 执行调用
       const output = await adapter.invoke(invokeInput)
-      return ok(output)
+      if (invokeInput.responseFormat === 'legacy_text') {
+        return ok(output)
+      }
+
+      const parsedResult = parseModelJsonOutput(output.content)
+      if (!parsedResult.ok) return parsedResult as Result<never>
+
+      return ok({
+        ...output,
+        parsedJson: parsedResult.data,
+      })
     } catch (e) {
       return err(createError('MODEL_INVOKE_FAILED', 'model-runtime',
         e instanceof Error ? e.message : String(e)))
@@ -129,6 +140,7 @@ export class ModelInvokeService {
       const invokeInput: ModelInvokeInput = {
         ...input,
         mode: 'blocking',
+        responseFormat: input.responseFormat ?? 'json_object',
         resolvedProfile: profile,
         apiKey,
       }
@@ -147,6 +159,7 @@ export class ModelInvokeService {
     const invokeInput: ModelInvokeInput = {
       ...input,
       mode: 'stream',
+      responseFormat: input.responseFormat ?? 'json_object',
       resolvedProfile: profile,
       apiKey,
     }
@@ -274,5 +287,30 @@ export class ModelInvokeService {
       default:
         return undefined
     }
+  }
+}
+
+function parseModelJsonOutput(content: string): Result<unknown> {
+  try {
+    const parsed = JSON.parse(content)
+    if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
+      return err(createError('MODEL_OUTPUT_PARSE_FAILED', 'model-runtime',
+        'Model output must be a JSON object.', {
+          recoverable: true,
+          suggestedAction: 'Retry with the same JSON output contract or switch to a model that supports structured output.',
+          detail: { preview: content.slice(0, 500) },
+        }))
+    }
+    return ok(parsed)
+  } catch (e) {
+    return err(createError('MODEL_OUTPUT_PARSE_FAILED', 'model-runtime',
+      'Model output is not valid JSON.', {
+        recoverable: true,
+        suggestedAction: 'Retry the model call. The agent requires machine-parseable JSON output.',
+        detail: {
+          parseError: e instanceof Error ? e.message : String(e),
+          preview: content.slice(0, 500),
+        },
+      }))
   }
 }

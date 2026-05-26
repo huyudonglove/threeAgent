@@ -3,7 +3,7 @@
 
 import { PathResolver } from '../storage/path-resolver'
 import { JsonStore } from '../storage/json-store'
-import type { TaskRuntime, TaskStatus } from '../contracts/types'
+import type { RuntimeErrorSnapshot, TaskRuntime, TaskStatus } from '../contracts/types'
 import { validateTaskRuntime } from '../validation/structure'
 import { validateTaskTransition } from '../validation/state-transition'
 import { Result, ok, err } from '../errors/result'
@@ -43,7 +43,16 @@ export class TaskRuntimeManager {
   async create(
     workspaceRootPath: string,
     conversationId: string,
-    input: { title: string; owner: string; currentNodeName: string; workflowId?: string; domainName?: string },
+    input: {
+      title: string
+      rawInput?: string
+      userGoal?: string
+      owner: string
+      currentNodeId?: string | null
+      currentNodeName: string
+      workflowId?: string
+      domainName?: string
+    },
   ): Promise<Result<TaskRuntime>> {
     const resolver = new PathResolver(workspaceRootPath)
     const now = new Date().toISOString()
@@ -61,16 +70,23 @@ export class TaskRuntimeManager {
       workspaceId,
       conversationId,
       title: input.title,
+      rawInput: input.rawInput ?? input.title,
+      userGoal: input.userGoal ?? input.rawInput ?? input.title,
       owner: input.owner,
       status: 'running',
+      currentNodeId: input.currentNodeId ?? null,
       currentNodeName: input.currentNodeName,
       workflowId: input.workflowId ?? null,
       domainName: input.domainName ?? null,
       blockedReason: null,
       waitingFor: null,
+      lastError: null,
       backflowCount: 0,
       confirmationCount: 0,
       artifactIds: [],
+      startedAt: now,
+      completedAt: null,
+      cancelledAt: null,
       createdAt: now,
       updatedAt: now,
     }
@@ -99,7 +115,7 @@ export class TaskRuntimeManager {
         detail: result.error,
       }))
     }
-    return ok(result.data)
+    return ok(this.normalizeTaskRuntime(result.data))
   }
 
   /**
@@ -121,10 +137,25 @@ export class TaskRuntimeManager {
         }))
     }
 
-    return this.update(workspaceRootPath, taskId, {
+    const now = new Date().toISOString()
+    const patch: Partial<TaskRuntime> = {
       status: newStatus,
       blockedReason: newStatus === 'blocked' ? readResult.data.blockedReason : null,
-    })
+      waitingFor: newStatus === 'blocked' ? readResult.data.waitingFor : null,
+    }
+
+    if (newStatus === 'done') {
+      patch.completedAt = now
+      patch.cancelledAt = null
+      patch.lastError = null
+    } else if (newStatus === 'cancelled') {
+      patch.cancelledAt = now
+    } else if (newStatus === 'running') {
+      patch.cancelledAt = null
+      patch.lastError = null
+    }
+
+    return this.update(workspaceRootPath, taskId, patch)
   }
 
   /**
@@ -160,9 +191,24 @@ export class TaskRuntimeManager {
   async setCurrentNode(
     workspaceRootPath: string,
     taskId: string,
+    nodeId: string | null,
     nodeName: string,
   ): Promise<Result<void>> {
-    return this.update(workspaceRootPath, taskId, { currentNodeName: nodeName })
+    return this.update(workspaceRootPath, taskId, {
+      currentNodeId: nodeId,
+      currentNodeName: nodeName,
+    })
+  }
+
+  /**
+   * 记录最近一次运行错误，供工作台展示和恢复判断使用。
+   */
+  async recordError(
+    workspaceRootPath: string,
+    taskId: string,
+    error: RuntimeErrorSnapshot,
+  ): Promise<Result<void>> {
+    return this.update(workspaceRootPath, taskId, { lastError: error })
   }
 
   /**
@@ -187,6 +233,22 @@ export class TaskRuntimeManager {
 
     const resolver = new PathResolver(workspaceRootPath)
     return JsonStore.write(resolver.taskRuntimePath(taskId), updated)
+  }
+
+  private normalizeTaskRuntime(task: TaskRuntime): TaskRuntime {
+    const completedAt = task.completedAt ?? (task.status === 'done' ? task.updatedAt : null)
+    const cancelledAt = task.cancelledAt ?? (task.status === 'cancelled' ? task.updatedAt : null)
+
+    return {
+      ...task,
+      rawInput: task.rawInput ?? task.title,
+      userGoal: task.userGoal ?? task.rawInput ?? task.title,
+      currentNodeId: task.currentNodeId ?? null,
+      lastError: task.lastError ?? null,
+      startedAt: task.startedAt ?? task.createdAt,
+      completedAt,
+      cancelledAt,
+    }
   }
 
   // ─── 恢复/继续入口 ───

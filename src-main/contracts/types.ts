@@ -69,8 +69,10 @@ export interface ConversationRuntime {
   status: ConversationStatus
   currentTaskId: string | null
   currentWorkflowId: string | null
+  currentNodeId?: string | null
   currentNodeName: string | null
   taskDomain: string | null
+  closedAt?: string | null
   createdAt: string
   updatedAt: string
 }
@@ -84,21 +86,35 @@ export interface TaskRuntime {
   workspaceId: string
   conversationId: string
   title: string
+  rawInput?: string
+  userGoal?: string
   owner: string
   status: TaskStatus
+  currentNodeId?: string | null
   currentNodeName: string
   workflowId: string | null
   domainName: string | null
   blockedReason: string | null
   waitingFor: string | null
+  lastError?: RuntimeErrorSnapshot | null
   backflowCount: number
   confirmationCount: number
   artifactIds: string[]
+  startedAt?: string | null
+  completedAt?: string | null
+  cancelledAt?: string | null
   createdAt: string
   updatedAt: string
 }
 
 export type TaskStatus = 'running' | 'blocked' | 'done' | 'queued' | 'cancelled'
+
+export interface RuntimeErrorSnapshot {
+  code: string
+  message: string
+  occurredAt: string
+  recoverable: boolean
+}
 
 // ─── 工作流节点 ───
 
@@ -127,9 +143,12 @@ export interface ArtifactIndexEntry {
   title: string
   type: string
   node: string
+  producedByNodeId?: string | null
   taskId: string
   status: ArtifactStatus
   path: string
+  summary?: string
+  previewText?: string
   relatedArtifactIds: string[]
   createdAt: string
   updatedAt: string

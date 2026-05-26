@@ -43,12 +43,25 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
       model: profile.modelName,
       messages: input.messages.map(m => formatChatMessage(m)),
       temperature: input.temperature ?? 0.7,
+      top_p: input.topP,
       max_tokens: input.maxTokens ?? 4096,
+      seed: input.seed ?? undefined,
+      presence_penalty: input.presencePenalty,
+      frequency_penalty: input.frequencyPenalty,
+      stop: input.stop?.length ? input.stop : undefined,
+      reasoning_effort: input.reasoningEffort && input.reasoningEffort !== 'auto'
+        ? input.reasoningEffort
+        : undefined,
       tools: input.tools?.length ? input.tools.map(t => ({
         type: t.type,
         function: t.function,
       })) : undefined,
+      tool_choice: input.toolChoice,
+      response_format: input.responseFormat === 'legacy_text'
+        ? undefined
+        : { type: 'json_object' },
       stream: false,
+      ...input.providerSpecific,
     }
 
     const response = await fetch(url, {
@@ -58,7 +71,7 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
         'Authorization': `Bearer ${apiKey}`,
       },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(60000),
+      signal: AbortSignal.timeout(input.timeoutMs ?? 60000),
     })
 
     if (!response.ok) {
@@ -127,13 +140,26 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
       model: profile.modelName,
       messages: input.messages.map(m => formatChatMessage(m)),
       temperature: input.temperature ?? 0.7,
+      top_p: input.topP,
       max_tokens: input.maxTokens ?? 4096,
+      seed: input.seed ?? undefined,
+      presence_penalty: input.presencePenalty,
+      frequency_penalty: input.frequencyPenalty,
+      stop: input.stop?.length ? input.stop : undefined,
+      reasoning_effort: input.reasoningEffort && input.reasoningEffort !== 'auto'
+        ? input.reasoningEffort
+        : undefined,
       tools: input.tools?.length ? input.tools.map(t => ({
         type: t.type,
         function: t.function,
       })) : undefined,
+      tool_choice: input.toolChoice,
+      response_format: input.responseFormat === 'legacy_text'
+        ? undefined
+        : { type: 'json_object' },
       stream: true,
       stream_options: { include_usage: true },
+      ...input.providerSpecific,
     }
 
     const response = await fetch(url, {
@@ -143,7 +169,7 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
         'Authorization': `Bearer ${apiKey}`,
       },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(120000),
+      signal: AbortSignal.timeout(input.timeoutMs ?? 120000),
     })
 
     if (!response.ok) {

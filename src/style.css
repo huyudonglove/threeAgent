@@ -146,6 +146,34 @@ button:focus-visible {
   color: var(--text-secondary);
 }
 
+.submit-feedback {
+  align-self: flex-end;
+  margin: 0;
+  max-width: 360px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+
+.feedback-success {
+  background: rgba(31, 157, 102, 0.12);
+  color: var(--accent-green);
+}
+
+.feedback-error {
+  background: rgba(197, 83, 73, 0.12);
+  color: var(--accent-red);
+}
+
+.action-feedback {
+  margin: 14px 0 0;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
 .eyebrow {
   margin: 0 0 10px;
   font-size: 0.76rem;
@@ -805,7 +833,9 @@ button:focus-visible {
   .hero-runtime,
   .stage-row,
   .workflow-list,
-  .metrics-grid {
+  .metrics-grid,
+  .artifact-item,
+  .artifact-meta-grid {
     grid-template-columns: 1fr;
   }
 
@@ -844,6 +874,29 @@ button:focus-visible {
 .icon-button:hover {
   background: rgba(47, 111, 237, 0.18);
   transform: translateY(-1px);
+}
+
+.danger-icon-button {
+  background: rgba(197, 83, 73, 0.08);
+  color: var(--accent-red);
+  border-color: rgba(197, 83, 73, 0.18);
+}
+
+.danger-icon-button:hover {
+  background: rgba(197, 83, 73, 0.16);
+}
+
+.conversation-domain {
+  color: var(--text-tertiary);
+  font-size: 0.78rem;
+}
+
+.conversation-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 12px;
 }
 
 /* workflow-actions 操作区块 */
@@ -989,6 +1042,121 @@ button:focus-visible {
   padding: 24px;
   border-radius: var(--radius-xl);
   animation: fade-up 500ms ease-out;
+}
+
+.artifact-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 18px;
+}
+
+.artifact-panel-head h3 {
+  margin: 0;
+  font-size: 1.12rem;
+}
+
+.artifact-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  background: rgba(47, 111, 237, 0.12);
+  color: var(--accent-blue);
+  font-size: 1.35rem;
+  font-weight: 800;
+}
+
+.artifact-list {
+  display: grid;
+  gap: 12px;
+}
+
+.artifact-empty,
+.artifact-item {
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-soft);
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.artifact-empty {
+  padding: 22px;
+  border-style: dashed;
+}
+
+.artifact-empty strong {
+  display: block;
+  font-size: 1rem;
+}
+
+.artifact-empty p {
+  margin: 8px 0 0;
+  color: var(--text-secondary);
+}
+
+.artifact-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.9fr);
+  gap: 18px;
+  padding: 18px;
+}
+
+.artifact-main {
+  min-width: 0;
+}
+
+.artifact-type {
+  display: inline-flex;
+  margin-bottom: 8px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: rgba(107, 125, 148, 0.1);
+  color: var(--text-secondary);
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
+.artifact-main strong {
+  display: block;
+  font-size: 1rem;
+}
+
+.artifact-main p {
+  margin: 8px 0 0;
+  color: var(--text-tertiary);
+  word-break: break-all;
+}
+
+.artifact-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  align-items: stretch;
+}
+
+.artifact-meta-grid > div {
+  min-width: 0;
+  padding: 10px;
+  border-radius: 12px;
+  background: var(--surface-muted);
+}
+
+.artifact-meta-grid span {
+  display: block;
+  color: var(--text-tertiary);
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.artifact-meta-grid strong {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-primary);
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
 }
 
 /* ─── 主区域分组（任务/进展/下一步/产出） ─── */

@@ -77,6 +77,9 @@ describe('产物面板检查', () => {
     expect(entry.id).toBeTruthy()
     expect(entry.type).toBe('ProductSpec')
     expect(entry.status).toBe('draft')
+    expect(entry.producedByNodeId).toBe('ProjectKickoffPlanning')
+    expect(entry.summary).toContain('产品说明书')
+    expect(entry.previewText).toContain('实现Agent工作台')
   })
 
   it('产物状态迁移 draft → ready → updated', async () => {

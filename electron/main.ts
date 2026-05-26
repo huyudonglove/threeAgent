@@ -14,10 +14,13 @@ import { WorkflowRunner } from '../src-main/workflows/workflow-runner'
 import { PluginConfigManager } from '../src-main/plugins/plugin-config-manager'
 import { checkWorkflowPluginConflict, checkRolePluginConflict, checkDisableConflict } from '../src-main/plugins/plugin-conflict-check'
 import { ModelConfigManager } from '../src-main/model-config/model-config-manager'
+import { ModelInvokeService } from '../src-main/model-runtime/model-invoke-service'
+import { ModelLabService } from '../src-main/model-lab/model-lab-service'
 import { AgentMemoryService } from '../src-main/memory/agent-memory-service'
 import { MemoryDecisionEngine } from '../src-main/memory/memory-decision-engine'
 import { ResultPersistenceService } from '../src-main/results/result-persistence-service'
 import { InputUnderstandingService } from '../src-main/runtime/input-understanding-service'
+import { WorkbenchStateService } from '../src-main/runtime/workbench-state-service'
 import type { TaskStatus } from '../src-main/contracts/types'
 import type { ArtifactStatus } from '../src-main/contracts/types'
 import { AppPathResolver } from '../src-main/storage/app-path-resolver'
@@ -54,6 +57,10 @@ let win: BrowserWindow | null
 
 function createWindow() {
   win = new BrowserWindow({
+    width: 1440,
+    height: 900,
+    minWidth: 1180,
+    minHeight: 760,
     icon: path.join(process.env.VITE_PUBLIC, 'electron-vite.svg'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
@@ -108,10 +115,20 @@ taskRuntimeManager.setWorkflowRunner(workflowRunner)
 taskRuntimeManager.setConversationManager(conversationManager)
 const pluginConfigManager = new PluginConfigManager(appPathResolver)
 const modelConfigManager = new ModelConfigManager(appPathResolver)
+const modelInvokeService = new ModelInvokeService(modelConfigManager, modelProfileResolver)
+const modelLabService = new ModelLabService(appPathResolver, modelInvokeService)
 const agentMemoryService = new AgentMemoryService()
 const memoryDecisionEngine = new MemoryDecisionEngine()
 const resultPersistenceService = new ResultPersistenceService()
 const inputUnderstandingService = new InputUnderstandingService()
+const workbenchStateService = new WorkbenchStateService({
+  workspaceManager,
+  conversationManager,
+  taskManager: taskRuntimeManager,
+  artifactService,
+  traceService,
+  workflowRunner,
+})
 const migrationService = new ConfigMigrationService(appPathResolver, workspaceManager)
 
 // 注入记忆系统依赖到会话管理器
@@ -150,6 +167,9 @@ function registerIpcHandlers() {
   ipcMain.handle('workspace:blocked-tasks', (_event, rootPath: string) =>
     workspaceManager.getBlockedTasks(rootPath),
   )
+  ipcMain.handle('workbench:get-current-state', (_event, rootPath: string, conversationId?: string) =>
+    workbenchStateService.getCurrentState(rootPath, conversationId),
+  )
 
   // 会话
   ipcMain.handle('conversation:get', (_event, rootPath: string, conversationId: string) =>
@@ -157,6 +177,12 @@ function registerIpcHandlers() {
   )
   ipcMain.handle('conversation:create', (_event, rootPath: string, title: string, taskType: string, taskDomain?: string) =>
     conversationManager.create(rootPath, { title, taskType, taskDomain }),
+  )
+  ipcMain.handle('conversation:close', (_event, rootPath: string, conversationId: string) =>
+    conversationManager.update(rootPath, conversationId, {
+      status: 'closed',
+      closedAt: new Date().toISOString(),
+    }),
   )
 
   // 任务运行态
@@ -312,6 +338,32 @@ function registerIpcHandlers() {
   )
   ipcMain.handle('app-model-config:state', () =>
     modelConfigManager.getAppConfigState(),
+  )
+
+  // 模型输出实验
+  ipcMain.handle('model-lab:invoke', (_event, input: Parameters<typeof modelLabService.invoke>[0]) =>
+    modelLabService.invoke(input),
+  )
+  ipcMain.handle('model-lab:run-parameter-sweep', (_event, input: Parameters<typeof modelLabService.runParameterSweep>[0]) =>
+    modelLabService.runParameterSweep(input),
+  )
+  ipcMain.handle('model-lab:run-consistency-test', (_event, input: Parameters<typeof modelLabService.runConsistencyTest>[0]) =>
+    modelLabService.runConsistencyTest(input),
+  )
+  ipcMain.handle('model-lab:validate-output', (_event, input: Parameters<typeof modelLabService.validateOutput>[0]) =>
+    modelLabService.validateOutput(input),
+  )
+  ipcMain.handle('model-lab:list-prompt-templates', () =>
+    modelLabService.listPromptTemplates(),
+  )
+  ipcMain.handle('model-lab:save-prompt-template', (_event, input: Parameters<typeof modelLabService.savePromptTemplate>[0]) =>
+    modelLabService.savePromptTemplate(input),
+  )
+  ipcMain.handle('model-lab:delete-prompt-template', (_event, input: Parameters<typeof modelLabService.deletePromptTemplate>[0]) =>
+    modelLabService.deletePromptTemplate(input),
+  )
+  ipcMain.handle('model-lab:list-runs', (_event, limit?: number) =>
+    modelLabService.listRuns(limit),
   )
 
   // 产物服务
@@ -544,13 +596,19 @@ function registerIpcHandlers() {
       workspaceId = (manifestResult.data as { id?: string }).id ?? ''
     }
 
-    // 4. 启动工作流（使用映射后的 workflowId 而非原始 taskDomain）
+    // 4. 确保内置工作流已注册后再启动
+    const loadWorkflowResult = await workflowRegistry.loadBuiltinDomainWorkflows(rootPath)
+    if (!loadWorkflowResult.ok) return loadWorkflowResult as import('../src-main/errors/result').Result<never>
+
+    // 5. 启动工作流（使用映射后的 workflowId 而非原始 taskDomain）
     const workflowResult = await workflowRunner.startTaskWorkflow({
       workspaceRootPath: rootPath,
       workspaceId,
       conversationId,
       taskDomain: workflowId,
       title,
+      rawInput,
+      userGoal: rawInput,
       operatorRole: 'tech_lead',
     })
     if (!workflowResult.ok) return workflowResult as import('../src-main/errors/result').Result<never>

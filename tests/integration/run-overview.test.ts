@@ -18,6 +18,9 @@ import { ConversationRuntimeManager } from '../../src-main/runtime/conversation-
 import { TaskRuntimeManager } from '../../src-main/runtime/task-runtime-manager'
 import { WorkflowRegistry } from '../../src-main/workflows/workflow-registry'
 import { WorkflowRunner } from '../../src-main/workflows/workflow-runner'
+import { ArtifactService } from '../../src-main/artifacts/artifact-service'
+import { DisplayTraceService } from '../../src-main/trace/display-trace-service'
+import { WorkbenchStateService } from '../../src-main/runtime/workbench-state-service'
 import type { TaskRuntime, ConversationRuntime, WorkspaceManifest } from '../../src-main/contracts/types'
 
 describe('Run 总览可视化检查', () => {
@@ -27,6 +30,9 @@ describe('Run 总览可视化检查', () => {
   let taskManager: TaskRuntimeManager
   let workflowRegistry: WorkflowRegistry
   let workflowRunner: WorkflowRunner
+  let artifactService: ArtifactService
+  let traceService: DisplayTraceService
+  let workbenchStateService: WorkbenchStateService
 
   beforeEach(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'agentThee-run-'))
@@ -35,6 +41,16 @@ describe('Run 总览可视化检查', () => {
     taskManager = new TaskRuntimeManager()
     workflowRegistry = new WorkflowRegistry()
     workflowRunner = new WorkflowRunner(workflowRegistry)
+    artifactService = new ArtifactService()
+    traceService = new DisplayTraceService()
+    workbenchStateService = new WorkbenchStateService({
+      workspaceManager,
+      conversationManager,
+      taskManager,
+      artifactService,
+      traceService,
+      workflowRunner,
+    })
 
     // 加载内置 workflow
     await workflowRegistry.loadBuiltinDomainWorkflows(tmpDir)
@@ -78,6 +94,8 @@ describe('Run 总览可视化检查', () => {
       conversationId: conv.id,
       taskDomain: 'existing-repo-iteration',
       title: '迭代任务',
+      rawInput: '帮我迭代一下项目',
+      userGoal: '帮我迭代一下项目',
       operatorRole: 'product_manager',
     })
     expect(startResult.ok).toBe(true)
@@ -88,12 +106,24 @@ describe('Run 总览可视化检查', () => {
     expect(taskResult.ok).toBe(true)
     const task = (taskResult as { ok: true; data: TaskRuntime }).data
     expect(task.status).toBe('running')
+    expect(task.rawInput).toBe('帮我迭代一下项目')
+    expect(task.userGoal).toBe('帮我迭代一下项目')
+    expect(task.currentNodeId).toBe(context.nodeStates.find((node: any) => node.state === 'running')?.nodeId)
+    expect(task.startedAt).toBeTruthy()
     expect(task.currentNodeName).toBeTruthy()
 
     // 5. 验证 Conversation 已关联
     const convRead = await conversationManager.read(tmpDir, conv.id)
     expect(convRead.ok).toBe(true)
     expect((convRead as any).data.currentTaskId).toBe(context.taskId)
+    expect((convRead as any).data.currentNodeId).toBe(task.currentNodeId)
+
+    const stateResult = await workbenchStateService.getCurrentState(tmpDir, conv.id)
+    expect(stateResult.ok).toBe(true)
+    const state = (stateResult as any).data
+    expect(state.task.id).toBe(context.taskId)
+    expect(state.currentNode.id).toBe(task.currentNodeId)
+    expect(state.availableActions.find((action: any) => action.id === 'advance')?.enabled).toBe(true)
   })
 
   it('多任务 Run 总览可并列查询', async () => {
@@ -114,6 +144,28 @@ describe('Run 总览可视化检查', () => {
     const c1 = (conv1 as any).data
     const c2 = (conv2 as any).data
     expect(c1.id).not.toBe(c2.id)
+  })
+
+  it('会话可关闭并保留原始记录', async () => {
+    await workspaceManager.initWorkspace(tmpDir, 'close-conv-ws')
+
+    const convResult = await conversationManager.create(tmpDir, {
+      title: '待关闭会话',
+      taskType: 'development',
+      taskDomain: 'existing-repo-iteration',
+    })
+    expect(convResult.ok).toBe(true)
+
+    const conv = (convResult as { ok: true; data: ConversationRuntime }).data
+    const closedAt = new Date().toISOString()
+    const closeResult = await conversationManager.update(tmpDir, conv.id, { status: 'closed', closedAt })
+    expect(closeResult.ok).toBe(true)
+
+    const readResult = await conversationManager.read(tmpDir, conv.id)
+    expect(readResult.ok).toBe(true)
+    const closed = (readResult as { ok: true; data: ConversationRuntime }).data
+    expect(closed.status).toBe('closed')
+    expect(closed.closedAt).toBe(closedAt)
   })
 
   it('workspace recover 可恢复总览数据', async () => {

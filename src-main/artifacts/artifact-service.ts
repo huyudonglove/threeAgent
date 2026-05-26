@@ -35,6 +35,8 @@ export class ArtifactService {
     title: string
     format: 'markdown' | 'json' | 'jsonl'
     content: string
+    summary?: string
+    previewText?: string
     createdByRole: string
     createdFromNode?: string | null
   }): Promise<Result<ArtifactIndexEntry>> {
@@ -67,14 +69,18 @@ export class ArtifactService {
 
     // 4. 构造索引条目
     const now = new Date().toISOString()
+    const previewText = input.previewText ?? createPreviewText(input.content)
     const entry: ArtifactIndexEntry = {
       id: artifactId,
       title: input.title,
       type: input.artifactType,
       node: input.createdFromNode ?? '',
+      producedByNodeId: input.createdFromNode ?? null,
       taskId: input.taskId ?? '',
       status: 'draft',
       path: relativePath,
+      summary: input.summary ?? previewText,
+      previewText,
       relatedArtifactIds: [],
       createdAt: now,
       updatedAt: now,
@@ -162,4 +168,13 @@ export class ArtifactService {
   getTypeRegistry(): ArtifactTypeRegistry {
     return this.typeRegistry
   }
+}
+
+function createPreviewText(content: string): string {
+  return content
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/[#>*_`[\]()]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 160)
 }
