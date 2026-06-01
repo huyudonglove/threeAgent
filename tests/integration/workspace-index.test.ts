@@ -2,25 +2,12 @@
 // T28: 工作区索引集成测试
 // 验证：listRecentWorkspaces、saveRecentWorkspace 去重、getWorkspaceStats
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
 import { WorkspaceManager, RecentWorkspaceEntry, WorkspaceStats } from '../../src-main/storage/workspace-manager'
 import { JsonStore } from '../../src-main/storage/json-store'
-
-// ─── Mock electron 模块 ───
-
-let mockUserDataPath: string
-
-vi.mock('electron', () => ({
-  app: {
-    getPath: vi.fn((name: string) => {
-      if (name === 'userData') return mockUserDataPath
-      return os.tmpdir()
-    }),
-  },
-}))
 
 describe('工作区索引集成测试', () => {
   let tmpDir: string
@@ -30,8 +17,7 @@ describe('工作区索引集成测试', () => {
   beforeEach(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'agentThee-ws-index-'))
     userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'agentThee-userdata-'))
-    mockUserDataPath = userDataDir
-    manager = new WorkspaceManager()
+    manager = new WorkspaceManager({ userDataPath: userDataDir })
   })
 
   afterEach(async () => {

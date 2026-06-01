@@ -221,7 +221,7 @@ Provider / Model / Binding 三张内部表的编辑器
 | --- | --- | --- |
 | OpenAI | `https://api.openai.com/v1` | OpenAI-compatible |
 | DeepSeek | `https://api.deepseek.com` | OpenAI-compatible |
-| MiMo | `https://api.xiaomimimo.com/v1` | OpenAI-compatible |
+| MiMo | `https://token-plan-cn.xiaomimimo.com/v1` | OpenAI-compatible |
 | Anthropic | `https://api.anthropic.com` | Anthropic-compatible |
 | 自定义 | 用户填写 | OpenAI-compatible 优先，可高级配置 |
 

@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import path from 'node:path'
 import electron from 'vite-plugin-electron/simple'
+import { startup } from 'vite-plugin-electron'
 import vue from '@vitejs/plugin-vue'
 
 // https://vitejs.dev/config/
@@ -11,6 +12,21 @@ export default defineConfig({
       main: {
         // Shortcut of `build.lib.entry`.
         entry: 'electron/main.ts',
+        onstart: () => {
+          const runtimeDir = path.join(__dirname, '.runtime')
+          startup([
+            '.',
+            '--no-sandbox',
+            `--user-data-dir=${path.join(runtimeDir, 'user-data')}`,
+            `--crash-dumps-dir=${path.join(runtimeDir, 'crash-dumps')}`,
+            '--disable-crash-reporter',
+          ], {
+            env: {
+              ...process.env,
+              AGENTTHEE_USER_DATA_DIR: path.join(runtimeDir, 'user-data'),
+            },
+          })
+        },
       },
       preload: {
         // Shortcut of `build.rollupOptions.input`.

@@ -1,16 +1,16 @@
 // src-main/storage/app-path-resolver.ts
 // 应用级路径解析器：将应用级配置从工作区路径中分离出来
 
-import { app } from 'electron'
 import * as path from 'path'
 import * as fs from 'fs'
+import { getUserDataPath } from './electron-user-data'
 
 export class AppPathResolver {
   private readonly baseDir: string
 
   constructor(options?: { baseDir?: string }) {
     // 允许测试时注入自定义路径，否则使用 electron userData
-    this.baseDir = options?.baseDir ?? path.join(app.getPath('userData'), 'agent-config')
+    this.baseDir = options?.baseDir ?? path.join(getUserDataPath(), 'agent-config')
   }
 
   /** 应用级配置根目录 */

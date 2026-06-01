@@ -1,0 +1,13 @@
+{
+  "terminal.integrated.defaultProfile.windows": "PowerShell",
+  "typescript.tsdk": "node_modules/typescript/lib",
+  "vue.server.hybridMode": true,
+  "files.eol": "\n",
+  "search.exclude": {
+    "**/.cache": true,
+    "**/.runtime": true,
+    "**/dist": true,
+    "**/dist-electron": true,
+    "**/release": true
+  }
+}

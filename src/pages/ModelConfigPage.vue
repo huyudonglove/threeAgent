@@ -83,13 +83,19 @@ interface PresetProvider {
   type: string
   apiBaseUrl: string
   icon: string
+  providerProtocol?: string
+  authMode?: string
+  authHeaderName?: string
+  chatCompletionsPath?: string
+  modelsPath?: string
+  supportsStreaming?: boolean
 }
 
-const presetProviders: PresetProvider[] = [
+const fallbackPresetProviders: PresetProvider[] = [
   { id: 'openai', name: 'OpenAI', type: 'openai', apiBaseUrl: 'https://api.openai.com/v1', icon: '🤖' },
   { id: 'anthropic', name: 'Anthropic', type: 'anthropic', apiBaseUrl: 'https://api.anthropic.com', icon: '🧠' },
   { id: 'deepseek', name: 'DeepSeek', type: 'openai', apiBaseUrl: 'https://api.deepseek.com', icon: '🔍' },
-  { id: 'mimo', name: 'MiMo', type: 'openai', apiBaseUrl: 'https://api.xiaomimimo.com/v1', icon: '🌐' },
+  { id: 'mimo', name: 'MiMo', type: 'openai', apiBaseUrl: 'https://token-plan-cn.xiaomimimo.com/v1', icon: '🌐' },
   { id: 'custom', name: '自定义服务商', type: 'custom', apiBaseUrl: '', icon: '⚙️' },
 ]
 
@@ -98,7 +104,7 @@ interface PresetModel {
   modelName: string
   displayName: string
   capabilities: string[]
-  contextWindow: number
+  contextWindow: number | null
   description: string
 }
 
@@ -119,10 +125,36 @@ const PRESET_MODELS: Record<string, PresetModel[]> = {
     { modelName: 'deepseek-reasoner', displayName: 'DeepSeek Reasoner', capabilities: ['reasoning', 'streaming', 'long_context'], contextWindow: 65536, description: '深度推理模型，适合复杂逻辑和数学问题' },
   ],
   mimo: [
-    { modelName: 'mimo-7b', displayName: 'MiMo 7B', capabilities: ['chat', 'streaming'], contextWindow: 32768, description: '轻量对话模型，响应快速' },
-    { modelName: 'mimo-13b', displayName: 'MiMo 13B', capabilities: ['chat', 'streaming', 'tool_call'], contextWindow: 32768, description: '中量级模型，支持工具调用' },
+    { modelName: 'mimo-v2.5-pro', displayName: 'MiMo V2.5 Pro', capabilities: ['chat', 'streaming', 'tool_call', 'reasoning', 'long_context'], contextWindow: 1000000, description: 'MiMo 高质量推理与 Agent 任务模型' },
+    { modelName: 'mimo-v2.5', displayName: 'MiMo V2.5', capabilities: ['chat', 'streaming', 'tool_call', 'reasoning', 'long_context'], contextWindow: 1000000, description: 'MiMo 通用长上下文对话模型' },
+    { modelName: 'mimo-v2.5-flash', displayName: 'MiMo V2.5 Flash', capabilities: ['chat', 'streaming', 'tool_call'], contextWindow: 256000, description: 'MiMo 低延迟轻量任务模型' },
   ],
 }
+
+interface ProviderPresetDto {
+  id: string
+  name: string
+  icon: string
+  providerType: string
+  providerProtocol: string
+  defaultBaseUrl: string
+  authMode?: string
+  authHeaderName?: string
+  chatCompletionsPath?: string
+  modelsPath?: string
+  supportsStreaming?: boolean
+  recommendedModels: Array<{
+    modelName: string
+    displayName: string
+    capabilities: string[]
+    contextWindow: number | null
+    supportsReasoning?: boolean
+    supportsToolCall?: boolean
+  }>
+}
+
+const presetProviders = ref<PresetProvider[]>(fallbackPresetProviders)
+const presetModelsByProvider = ref<Record<string, PresetModel[]>>(PRESET_MODELS)
 
 // ─── 全局状态 ───
 
@@ -749,7 +781,7 @@ const wizardModels = computed(() => {
 /** 内置推荐模型（按当前 selectedPreset） */
 const wizardPresetModels = computed(() => {
   if (!selectedPreset.value || selectedPreset.value.id === 'custom') return []
-  return PRESET_MODELS[selectedPreset.value.id] ?? []
+  return presetModelsByProvider.value[selectedPreset.value.id] ?? []
 })
 
 /** 已经通过内置推荐添加过的模型 modelName 集合 */
@@ -759,6 +791,20 @@ const addedPresetModelNames = computed(() => {
 })
 
 const stepLabels = ['选择服务商', '配置连接', '选择模型并测试']
+
+function toSafeIdPart(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
+function buildModelId(providerId: string, modelName: string): string {
+  const safeProvider = toSafeIdPart(providerId) || 'provider'
+  const safeModel = toSafeIdPart(modelName) || `model-${Date.now()}`
+  return `model-${safeProvider}-${safeModel}`
+}
 
 function formatApiError(prefix: string, apiError?: { message?: string } | null): string {
   return `${prefix}: ${apiError?.message || '未知错误，请检查配置后重试'}`
@@ -796,6 +842,15 @@ function resetModelForm() {
   newModel.value = { id: '', providerId: '', modelName: '', displayName: '', description: '', capabilities: ['chat'], contextWindow: 128000 }
 }
 
+function syncNewModelId() {
+  if (editingModelId.value) return
+  if (!newModel.value.providerId || !newModel.value.modelName) return
+  newModel.value.id = buildModelId(newModel.value.providerId, newModel.value.modelName)
+  if (!newModel.value.displayName) {
+    newModel.value.displayName = newModel.value.modelName
+  }
+}
+
 function startAddModel() {
   editingModelId.value = null
   newModel.value = { id: '', providerId: '', modelName: '', displayName: '', description: '', capabilities: ['chat'], contextWindow: 128000 }
@@ -820,6 +875,59 @@ function startEditModel(model: ModelInfo) {
 }
 
 // ─── 数据加载 ───
+
+function mapPresetModel(model: ProviderPresetDto['recommendedModels'][number]): PresetModel {
+  const capabilities = new Set(model.capabilities)
+  capabilities.add('streaming')
+  if (model.supportsToolCall) capabilities.add('tool_call')
+  if (model.supportsReasoning) capabilities.add('reasoning')
+  if ((model.contextWindow ?? 0) >= 128000) capabilities.add('long_context')
+
+  return {
+    modelName: model.modelName,
+    displayName: model.displayName,
+    capabilities: [...capabilities],
+    contextWindow: model.contextWindow,
+    description: model.supportsReasoning
+      ? '内置推荐推理模型'
+      : '内置推荐模型',
+  }
+}
+
+async function loadPresets() {
+  try {
+    const result = await api.listPresets?.()
+    if (!result?.ok || !result.data) return
+
+    const presets = result.data as ProviderPresetDto[]
+    const customPreset = fallbackPresetProviders.find(p => p.id === 'custom')
+    presetProviders.value = [
+      ...presets.map((preset) => ({
+        id: preset.id,
+        name: preset.name,
+        type: preset.providerType,
+        apiBaseUrl: preset.defaultBaseUrl,
+        icon: preset.icon,
+        providerProtocol: preset.providerProtocol,
+        authMode: preset.authMode,
+        authHeaderName: preset.authHeaderName,
+        chatCompletionsPath: preset.chatCompletionsPath,
+        modelsPath: preset.modelsPath,
+        supportsStreaming: preset.supportsStreaming,
+      })),
+      ...(customPreset ? [customPreset] : []),
+    ]
+
+    presetModelsByProvider.value = Object.fromEntries(
+      presets.map((preset) => [
+        preset.id,
+        preset.recommendedModels.map(mapPresetModel),
+      ]),
+    )
+  } catch (e) {
+    console.warn('Failed to load provider presets, using fallback presets', e)
+  }
+}
 
 async function loadConfig() {
   loading.value = true
@@ -938,6 +1046,13 @@ async function saveConnection() {
         name: providerName,
         apiBaseUrl: baseUrl,
         type: preset.type,
+        providerProtocol: preset.providerProtocol,
+        authMode: preset.authMode,
+        authHeaderName: preset.authHeaderName,
+        chatCompletionsPath: preset.chatCompletionsPath,
+        modelsPath: preset.modelsPath,
+        supportsStreaming: preset.supportsStreaming,
+        presetSource: preset.id === 'custom' ? 'custom' : preset.id,
         apiKeyRef: { type: 'secretRef', store: 'secrets', key: `provider-${providerId}-apiKey` },
         enabled: true,
       })
@@ -996,7 +1111,7 @@ async function addPresetModel(presetModel: PresetModel) {
   wizardBusy.value = true
   wizardError.value = null
   try {
-    const modelId = `model-${wizardProviderId.value}-${presetModel.modelName}`
+    const modelId = buildModelId(wizardProviderId.value, presetModel.modelName)
     const result = await api.addAppModel({
       id: modelId,
       providerId: wizardProviderId.value,
@@ -1128,11 +1243,12 @@ async function setAsDefaultProvider(providerId: string) {
 
 async function addModelSubmit() {
   const m = newModel.value
+  const modelId = editingModelId.value || m.id || buildModelId(m.providerId, m.modelName)
   const modelInput = {
-    id: m.id,
+    id: modelId,
     providerId: m.providerId,
     modelName: m.modelName,
-    displayName: m.displayName,
+    displayName: m.displayName || m.modelName,
     description: m.description || undefined,
     capabilities: [...m.capabilities],
     contextWindow: m.contextWindow || null,
@@ -1294,8 +1410,9 @@ async function runHealthCheck(providerId: string) {
 
 // ─── 初始化 ───
 
-onMounted(() => {
-  loadConfig()
+onMounted(async () => {
+  await loadPresets()
+  await loadConfig()
 })
 </script>
 
@@ -1439,7 +1556,7 @@ onMounted(() => {
                 <span v-for="cap in pm.capabilities" :key="cap" class="cap-tag">{{ getCapabilityLabel(cap) }}</span>
               </div>
               <div class="preset-model-foot">
-                <span class="preset-ctx">上下文 {{ (pm.contextWindow / 1000).toFixed(0) }}K</span>
+                <span class="preset-ctx">上下文 {{ pm.contextWindow ? `${(pm.contextWindow / 1000).toFixed(0)}K` : '未知' }}</span>
                 <button
                   v-if="!addedPresetModelNames.has(pm.modelName)"
                   class="secondary-button preset-add-btn"
@@ -2060,7 +2177,7 @@ onMounted(() => {
             <div v-if="showAddModel" class="form-card">
               <div class="form-row">
                 <label>服务商</label>
-                <select v-model="newModel.providerId">
+                <select v-model="newModel.providerId" @change="syncNewModelId">
                   <option value="">选择服务商</option>
                   <option v-for="p in providers" :key="p.id" :value="p.id">{{ p.name }}</option>
                 </select>
@@ -2071,7 +2188,7 @@ onMounted(() => {
               </div>
               <div class="form-row">
                 <label>模型名称</label>
-                <input v-model="newModel.modelName" placeholder="gpt-4o" />
+                <input v-model="newModel.modelName" placeholder="gpt-4o" @input="syncNewModelId" />
               </div>
               <div class="form-row">
                 <label>用途说明</label>

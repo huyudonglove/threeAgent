@@ -905,7 +905,7 @@ MiMo 开放平台兼容两种 API 格式：
 | providerId | `mimo` |
 | providerName | `MiMo` |
 | providerType | `openai-compatible` |
-| defaultBaseUrl | `https://api.xiaomimimo.com/v1` |
+| defaultBaseUrl | `https://token-plan-cn.xiaomimimo.com/v1` |
 | chatCompletionsPath | `/chat/completions` |
 | defaultModel | `mimo-v2.5-pro` |
 | authHeader | `api-key` 或 `Authorization: Bearer` |
@@ -914,7 +914,7 @@ MiMo 开放平台兼容两种 API 格式：
 配置向导中选择 MiMo 后，应自动填充：
 
 - Provider 名称：MiMo
-- API Base URL：`https://api.xiaomimimo.com/v1`
+- API Base URL：`https://token-plan-cn.xiaomimimo.com/v1`
 - 推荐模型：`mimo-v2.5-pro`
 - API Key 字段提示：`MIMO_API_KEY`
 

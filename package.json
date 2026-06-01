@@ -2,10 +2,16 @@
   "name": "agentthee",
   "private": true,
   "version": "0.0.0",
+  "description": "Personal AI agent workbench desktop app.",
+  "author": "AgentThee Contributors",
+  "packageManager": "pnpm@10.33.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vue-tsc && vite build && electron-builder",
+    "dev": "node scripts/dev.mjs",
+    "build": "node scripts/build.mjs",
+    "typecheck": "vue-tsc --noEmit",
+    "doctor": "node scripts/doctor.mjs",
+    "doctor:machine": "powershell -ExecutionPolicy Bypass -File scripts/machine-doctor.ps1",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest"

@@ -177,6 +177,66 @@ describe('ModelConfigManager (App-level)', () => {
     }
   })
 
+  it('同一服务商可以配置多个不同模型并分别绑定场景', async () => {
+    await manager.addAppProvider({
+      id: 'mimo',
+      name: 'MiMo',
+      apiBaseUrl: 'https://token-plan-cn.xiaomimimo.com/v1',
+      type: 'openai',
+      apiKeyRef: { type: 'secretRef', store: 'secrets', key: 'provider-mimo-apiKey' },
+      enabled: true,
+    })
+
+    const pro = await manager.addAppModel({
+      id: 'model-mimo-pro',
+      providerId: 'mimo',
+      modelName: 'mimo-v2.5-pro',
+      displayName: 'MiMo V2.5 Pro',
+      capabilities: ['chat', 'reasoning'],
+      contextWindow: 1000000,
+      enabled: true,
+    })
+    const flash = await manager.addAppModel({
+      id: 'model-mimo-flash',
+      providerId: 'mimo',
+      modelName: 'mimo-v2.5-flash',
+      displayName: 'MiMo V2.5 Flash',
+      capabilities: ['chat'],
+      contextWindow: 256000,
+      enabled: true,
+    })
+
+    expect(pro.ok).toBe(true)
+    expect(flash.ok).toBe(true)
+
+    await manager.addAppBinding({
+      id: 'binding-planning',
+      role: 'planning',
+      modelId: 'model-mimo-pro',
+      providerId: 'mimo',
+      scope: 'global',
+      priority: 1,
+      enabled: true,
+    })
+    await manager.addAppBinding({
+      id: 'binding-summary',
+      role: 'summary',
+      modelId: 'model-mimo-flash',
+      providerId: 'mimo',
+      scope: 'global',
+      priority: 1,
+      enabled: true,
+    })
+
+    const config = await manager.readAppConfig()
+    expect(config.ok).toBe(true)
+    if (config.ok) {
+      expect(config.data.models.filter(m => m.providerId === 'mimo')).toHaveLength(2)
+      expect(config.data.bindings.find(b => b.role === 'planning')?.modelId).toBe('model-mimo-pro')
+      expect(config.data.bindings.find(b => b.role === 'summary')?.modelId).toBe('model-mimo-flash')
+    }
+  })
+
   it('updateAppModel 修改字段', async () => {
     await manager.addAppModel({
       id: 'model-up',

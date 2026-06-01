@@ -31,6 +31,12 @@ import { getBuiltinProviderPresets } from '../src-main/model-config/provider-pre
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
+const userDataDir = process.env['AGENTTHEE_USER_DATA_DIR']
+if (userDataDir) {
+  app.setPath('userData', userDataDir)
+  app.setPath('crashDumps', path.join(userDataDir, 'crash-dumps'))
+}
+
 // 应用级路径解析器（独立于工作区路径）
 const appPathResolver = new AppPathResolver()
 appPathResolver.ensureConfigDir()

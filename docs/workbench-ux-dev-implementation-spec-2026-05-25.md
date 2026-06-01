@@ -392,7 +392,7 @@ deepseek-reasoner
 providerId: mimo
 providerName: MiMo
 providerProtocol: openai-compatible
-defaultBaseUrl: https://api.xiaomimimo.com/v1
+defaultBaseUrl: https://token-plan-cn.xiaomimimo.com/v1
 chatCompletionsPath: /chat/completions
 modelsPath: /models
 authMode: api-key-header 或 authorization-bearer

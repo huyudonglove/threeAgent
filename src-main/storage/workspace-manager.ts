@@ -4,9 +4,9 @@
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { app } from 'electron'
 import { PathResolver } from './path-resolver'
 import { JsonStore } from './json-store'
+import { getUserDataPath } from './electron-user-data'
 import type { WorkspaceManifest, WorkspaceIndex, WorkspaceIndexEntry, EnvironmentFingerprint, TaskRuntime } from '../contracts/types'
 import { validateWorkspaceManifest } from '../validation/structure'
 import { Result, ok, err } from '../errors/result'
@@ -14,13 +14,14 @@ import { createError } from '../errors/unified-error'
 
 export class WorkspaceManager {
   private indexPath: string
+  private userDataPath: string
 
-  constructor(options?: { indexPath?: string }) {
+  constructor(options?: { indexPath?: string; userDataPath?: string }) {
+    this.userDataPath = options?.userDataPath ?? getUserDataPath()
     if (options?.indexPath) {
       this.indexPath = options.indexPath
     } else {
-      const userDataPath = app.getPath('userData')
-      this.indexPath = path.join(userDataPath, 'workspace-index.json')
+      this.indexPath = path.join(this.userDataPath, 'workspace-index.json')
     }
   }
 
@@ -440,8 +441,7 @@ export class WorkspaceManager {
    * 最近工作区列表存储路径
    */
   private get recentWorkspacesPath(): string {
-    const userDataPath = app.getPath('userData')
-    return path.join(userDataPath, 'recent-workspaces.json')
+    return path.join(this.userDataPath, 'recent-workspaces.json')
   }
 }
 
