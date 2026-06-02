@@ -17,6 +17,7 @@ interface ProviderInfo {
   name: string
   apiBaseUrl: string
   type: string
+  presetSource?: string
   apiKeyRef?: { type: string; store: string; key: string }
   enabled: boolean
   hasApiKey: boolean
@@ -127,7 +128,6 @@ const PRESET_MODELS: Record<string, PresetModel[]> = {
   mimo: [
     { modelName: 'mimo-v2.5-pro', displayName: 'MiMo V2.5 Pro', capabilities: ['chat', 'streaming', 'tool_call', 'reasoning', 'long_context'], contextWindow: 1000000, description: 'MiMo 高质量推理与 Agent 任务模型' },
     { modelName: 'mimo-v2.5', displayName: 'MiMo V2.5', capabilities: ['chat', 'streaming', 'tool_call', 'reasoning', 'long_context'], contextWindow: 1000000, description: 'MiMo 通用长上下文对话模型' },
-    { modelName: 'mimo-v2.5-flash', displayName: 'MiMo V2.5 Flash', capabilities: ['chat', 'streaming', 'tool_call'], contextWindow: 256000, description: 'MiMo 低延迟轻量任务模型' },
   ],
 }
 
@@ -604,6 +604,7 @@ const showJsonPreview = ref(false)
 // ─── 远端模型同步 ───
 
 const syncingProviderId = ref<string | null>(null)
+const addingPresetModelKey = ref<string | null>(null)
 
 // ─── 模型调用测试 ───
 
@@ -791,6 +792,38 @@ const addedPresetModelNames = computed(() => {
 })
 
 const stepLabels = ['选择服务商', '配置连接', '选择模型并测试']
+
+function getProviderPresetId(provider: ProviderInfo): string | null {
+  if (provider.presetSource && presetModelsByProvider.value[provider.presetSource]) {
+    return provider.presetSource
+  }
+
+  const normalizedProviderId = provider.id.replace(/^provider-/, '')
+  if (presetModelsByProvider.value[normalizedProviderId]) {
+    return normalizedProviderId
+  }
+
+  const matchedPreset = presetProviders.value.find((preset) => {
+    if (preset.id === 'custom') return false
+    return preset.type === provider.type && preset.apiBaseUrl === provider.apiBaseUrl
+  })
+
+  return matchedPreset?.id ?? null
+}
+
+function getProviderModels(providerId: string): ModelInfo[] {
+  return models.value.filter(model => model.providerId === providerId)
+}
+
+function getProviderPresetModels(provider: ProviderInfo): PresetModel[] {
+  const presetId = getProviderPresetId(provider)
+  return presetId ? (presetModelsByProvider.value[presetId] ?? []) : []
+}
+
+function getMissingProviderPresetModels(provider: ProviderInfo): PresetModel[] {
+  const configuredModelNames = new Set(getProviderModels(provider.id).map(model => model.modelName))
+  return getProviderPresetModels(provider).filter(model => !configuredModelNames.has(model.modelName))
+}
 
 function toSafeIdPart(value: string): string {
   return value
@@ -1106,38 +1139,58 @@ async function setWizardDefaultModel(modelId: string) {
   }
 }
 
-/** Step 3: 一键添加内置推荐模型 */
-async function addPresetModel(presetModel: PresetModel) {
-  wizardBusy.value = true
-  wizardError.value = null
+async function addRecommendedModelToProvider(providerId: string, presetModel: PresetModel, mode: 'wizard' | 'provider' = 'provider') {
+  const busyKey = `${providerId}:${presetModel.modelName}`
+  if (addingPresetModelKey.value) return
+
+  addingPresetModelKey.value = busyKey
+  if (mode === 'wizard') {
+    wizardBusy.value = true
+    wizardError.value = null
+  } else {
+    error.value = null
+  }
+
   try {
-    const modelId = buildModelId(wizardProviderId.value, presetModel.modelName)
+    const modelId = buildModelId(providerId, presetModel.modelName)
     const result = await api.addAppModel({
       id: modelId,
-      providerId: wizardProviderId.value,
+      providerId,
       modelName: presetModel.modelName,
       displayName: presetModel.displayName,
+      description: presetModel.description,
       capabilities: [...presetModel.capabilities],
       contextWindow: presetModel.contextWindow,
       enabled: true,
     })
     if (result.ok) {
       await loadConfig()
-      // 如果是第一个模型，自动设为默认
-      const updatedModels = models.value.filter(m => m.providerId === wizardProviderId.value)
+      const updatedModels = models.value.filter(m => m.providerId === providerId)
       if (updatedModels.length === 1) {
         await api.setAppDefaultModel(modelId)
         defaultModelId.value = modelId
         await loadConfig()
       }
     } else {
-      wizardError.value = formatApiError('添加推荐模型失败', result.error)
+      const message = formatApiError('添加推荐模型失败', result.error)
+      if (mode === 'wizard') wizardError.value = message
+      else error.value = message
     }
   } catch (e) {
-    wizardError.value = `添加失败: ${e}`
+    const message = `添加失败: ${e}`
+    if (mode === 'wizard') wizardError.value = message
+    else error.value = message
   } finally {
-    wizardBusy.value = false
+    addingPresetModelKey.value = null
+    if (mode === 'wizard') {
+      wizardBusy.value = false
+    }
   }
+}
+
+/** Step 3: 一键添加内置推荐模型 */
+async function addPresetModel(presetModel: PresetModel) {
+  await addRecommendedModelToProvider(wizardProviderId.value, presetModel, 'wizard')
 }
 
 /** Step 3: 测试连接 */
@@ -1853,6 +1906,51 @@ onMounted(async () => {
             <button type="button" @click="runHealthCheck(provider.id)">连通性测试</button>
             <button type="button" @click="startEditProvider(provider)">编辑</button>
             <button type="button" class="danger" @click="removeProvider(provider.id)">删除</button>
+          </div>
+
+          <div class="provider-model-panel">
+            <div class="provider-model-column">
+              <p class="provider-model-title">已配置模型</p>
+              <div v-if="getProviderModels(provider.id).length > 0" class="provider-model-chip-list">
+                <button
+                  v-for="model in getProviderModels(provider.id)"
+                  :key="model.id"
+                  type="button"
+                  class="provider-model-chip"
+                  :class="{ 'is-default': model.id === defaultModelId }"
+                  @click="setAsDefaultModel(model.id)"
+                >
+                  <span>{{ model.displayName }}</span>
+                  <small>{{ model.modelName }}</small>
+                </button>
+              </div>
+              <p v-else class="provider-model-empty">尚未添加模型。</p>
+            </div>
+
+            <div v-if="getProviderPresetModels(provider).length > 0" class="provider-model-column">
+              <p class="provider-model-title">可添加推荐模型</p>
+              <div v-if="getMissingProviderPresetModels(provider).length > 0" class="provider-recommended-list">
+                <div
+                  v-for="pm in getMissingProviderPresetModels(provider)"
+                  :key="pm.modelName"
+                  class="provider-recommended-model"
+                >
+                  <div>
+                    <strong>{{ pm.displayName }}</strong>
+                    <span>{{ pm.modelName }}</span>
+                  </div>
+                  <button
+                    class="secondary-button preset-add-btn"
+                    type="button"
+                    :disabled="addingPresetModelKey === `${provider.id}:${pm.modelName}`"
+                    @click="addRecommendedModelToProvider(provider.id, pm)"
+                  >
+                    {{ addingPresetModelKey === `${provider.id}:${pm.modelName}` ? '添加中...' : '添加' }}
+                  </button>
+                </div>
+              </div>
+              <p v-else class="provider-model-empty">推荐模型已全部添加。</p>
+            </div>
           </div>
         </div>
       </section>
@@ -2705,6 +2803,106 @@ onMounted(async () => {
 .preset-add-btn {
   font-size: 0.75rem !important;
   padding: 4px 12px !important;
+}
+
+.provider-model-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  gap: 14px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-soft, rgba(157, 176, 201, 0.28));
+}
+
+.provider-model-column {
+  min-width: 0;
+}
+
+.provider-model-title {
+  margin: 0 0 8px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.provider-model-chip-list,
+.provider-recommended-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.provider-model-chip {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  max-width: 220px;
+  min-height: 44px;
+  padding: 7px 10px;
+  border: 1px solid rgba(157, 176, 201, 0.36);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.provider-model-chip:hover,
+.provider-model-chip.is-default {
+  border-color: var(--accent-blue, #2f6fed);
+  background: rgba(47, 111, 237, 0.06);
+}
+
+.provider-model-chip span,
+.provider-recommended-model strong {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  font-size: 0.82rem;
+}
+
+.provider-model-chip small,
+.provider-recommended-model span {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  font-family: monospace;
+  font-size: 0.68rem;
+  color: var(--text-tertiary);
+}
+
+.provider-recommended-model {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-height: 46px;
+  padding: 8px 10px;
+  border: 1px solid rgba(157, 176, 201, 0.3);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.provider-recommended-model > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.provider-model-empty {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--text-tertiary);
+}
+
+@media (max-width: 780px) {
+  .provider-model-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .provider-recommended-model {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }
 
 .text-secondary {

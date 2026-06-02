@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 
 type ConstraintMode = 'loose_text' | 'prompt_json' | 'api_json' | 'legacy_text'
@@ -61,6 +61,8 @@ interface LabStreamEventRecord {
 
 interface LabRequestPreview {
   messages: Array<{ role: string; content: string; name?: string }>
+  promptSlots: PromptSlot[]
+  assembledPrompt: string
   params: Record<string, unknown>
   responseFormat?: 'json_object' | 'legacy_text'
   tools?: Array<Record<string, unknown>>
@@ -76,12 +78,14 @@ interface LabInputSnapshot {
   modelId?: string
   mode: RunMode
   constraintMode: ConstraintMode
+  promptSlots: PromptSlot[]
   params: {
     temperature?: number
     top_p?: number
     max_tokens?: number
     seed?: number | null
     enabled_tools?: string[]
+    native_web_search?: boolean
     tool_choice?: string
     provider_specific?: { thinkingType?: string }
   } & Record<string, unknown>
@@ -112,14 +116,37 @@ interface PromptTemplateRecord {
   id: string
   name: string
   scenario: 'task_understanding' | 'research' | 'implementation' | 'review' | 'custom'
-  systemPrompt: string
-  userPromptTemplate: string
+  promptSlots: PromptSlot[]
   outputContract: unknown
   responseFormat: 'json_object' | 'legacy_text'
   defaultParams: Record<string, unknown>
   status: 'draft' | 'candidate' | 'approved'
   createdAt: string
   updatedAt: string
+}
+
+type PromptSlotType =
+  | 'task'
+  | 'output_schema'
+  | 'skill'
+  | 'agent'
+  | 'tool'
+  | 'constraint'
+  | 'example'
+  | 'memory'
+  | 'custom'
+type PromptSlotSource = 'manual' | 'built_in' | 'saved_template' | 'generated'
+type PromptSlotChannel = 'system' | 'user' | 'assistant' | 'tool'
+
+interface PromptSlot {
+  id: string
+  type: PromptSlotType
+  title: string
+  enabled: boolean
+  order: number
+  content: string
+  source: PromptSlotSource
+  channel: PromptSlotChannel
 }
 
 interface BuiltinToolUi {
@@ -147,9 +174,7 @@ const constraintMode = ref<ConstraintMode>('api_json')
 const resultTab = ref<ResultTab>('raw')
 const selectedBatchRunId = ref('')
 
-const systemPrompt = ref('你是 Agent 后端模型，负责返回可校验的结构化结果。')
-const userPrompt = ref('帮我预研下 Vue，判断它是否适合做一个桌面端 Agent 工作台的前端框架。')
-const simpleStructureText = ref(JSON.stringify({
+const defaultOutputSchemaText = JSON.stringify({
   taskTitle: 'string',
   goal: 'string',
   steps: ['string'],
@@ -161,7 +186,40 @@ const simpleStructureText = ref(JSON.stringify({
       summary: 'string',
     },
   ],
-}, null, 2))
+}, null, 2)
+
+const promptSlots = ref<PromptSlot[]>([
+  {
+    id: 'slot-agent-role',
+    type: 'agent',
+    title: 'Agent Role',
+    enabled: true,
+    order: 10,
+    content: '你是 Agent 后端模型，负责返回可校验的结构化结果。',
+    source: 'manual',
+    channel: 'system',
+  },
+  {
+    id: 'slot-task',
+    type: 'task',
+    title: 'Task / Instruction',
+    enabled: true,
+    order: 20,
+    content: '帮我预研下 Vue，判断它是否适合做一个桌面端 Agent 工作台的前端框架。',
+    source: 'manual',
+    channel: 'user',
+  },
+  {
+    id: 'slot-output-schema',
+    type: 'output_schema',
+    title: 'Expected Output JSON',
+    enabled: true,
+    order: 30,
+    content: defaultOutputSchemaText,
+    source: 'manual',
+    channel: 'system',
+  },
+])
 
 const params = ref({
   temperature: 0.2,
@@ -176,10 +234,12 @@ const params = ref({
   stop: '',
   tool_choice: 'auto',
   enabled_tools: ['calculator', 'current_time', 'json_validator'] as string[],
+  native_web_search: false,
   thinking_type: 'default' as 'default' | 'enabled' | 'disabled',
 })
 
 const maxTokenOptions = [512, 1024, 2048, 4096, 8192, 16384]
+const promptSlotChannels: PromptSlotChannel[] = ['system', 'user', 'assistant', 'tool']
 
 const runCount = ref(3)
 const sweepTemperatures = ref('0, 0.2, 0.5, 0.8, 1')
@@ -253,6 +313,32 @@ const builtinTools: BuiltinToolUi[] = [
       required: ['query'],
       properties: {
         query: { type: 'string', description: '搜索关键词。' },
+      },
+    },
+  },
+  {
+    name: 'web_search',
+    description: 'Function web_search 参数观察，仅 mock',
+    group: '基础工具',
+    risk: 'mock',
+    parameters: {
+      type: 'object',
+      required: ['query'],
+      properties: {
+        query: { type: 'string', description: 'Search query.' },
+        type: { type: 'string', enum: ['web_search'], default: 'web_search' },
+        max_keyword: { type: 'number', default: 3, minimum: 1 },
+        force_search: { type: 'boolean', default: true },
+        limit: { type: 'number', default: 1, minimum: 1 },
+        user_location: {
+          type: 'object',
+          properties: {
+            type: { type: 'string', enum: ['approximate'], default: 'approximate' },
+            country: { type: 'string', default: 'China' },
+            region: { type: 'string', default: 'Hubei' },
+            city: { type: 'string', default: 'Wuhan' },
+          },
+        },
       },
     },
   },
@@ -415,6 +501,19 @@ const providerKey = computed(() => `${selectedProviderId.value} ${selectedProvid
 const isDeepSeekModel = computed(() => providerKey.value.includes('deepseek'))
 const isMimoModel = computed(() => providerKey.value.includes('mimo'))
 const supportsThinkingParam = computed(() => isDeepSeekModel.value || isMimoModel.value)
+const orderedPromptSlots = computed(() => [...promptSlots.value].sort((a, b) => a.order - b.order))
+const enabledPromptSlots = computed(() => orderedPromptSlots.value.filter(slot => slot.enabled && slot.content.trim()))
+const outputSchemaSlot = computed(() => promptSlots.value.find(slot => slot.type === 'output_schema'))
+const outputSchemaText = computed({
+  get: () => outputSchemaSlot.value?.content ?? '',
+  set: (value: string) => {
+    const slot = outputSchemaSlot.value
+    if (slot) slot.content = value
+  },
+})
+const assembledPromptText = computed(() => enabledPromptSlots.value
+  .map(slot => `## ${slot.title}\n${slot.content.trim()}`)
+  .join('\n\n'))
 const providerSpecificBody = computed<Record<string, unknown> | undefined>(() => {
   if (!supportsThinkingParam.value || params.value.thinking_type === 'default') return undefined
   return { thinking: { type: params.value.thinking_type } }
@@ -431,28 +530,17 @@ const inactiveParamNames = computed(() => {
 
 const parsedOutputContract = computed(() => {
   try {
-    return simpleStructureText.value.trim() ? JSON.parse(simpleStructureText.value) : undefined
+    return outputSchemaText.value.trim() ? JSON.parse(outputSchemaText.value) : undefined
   } catch {
     return undefined
   }
 })
 
-const contractError = computed(() => {
-  if (!simpleStructureText.value.trim()) return null
-  try {
-    JSON.parse(simpleStructureText.value)
-    return null
-  } catch (e) {
-    return e instanceof Error ? e.message : String(e)
-  }
-})
+const outputContractMode = computed(() => parsedOutputContract.value === undefined ? 'prompt_only' : 'json_validation')
 
 const localRequestPreview = computed<LabRequestPreview>(() => {
   const outputContract = parsedOutputContract.value
-  const messages = [
-    { role: 'system', content: systemPrompt.value.trim() },
-    { role: 'user', content: userPrompt.value.trim() },
-  ].filter(message => message.content)
+  const messages = buildPromptMessages(enabledPromptSlots.value)
 
   const stop = parseStop()
   const tools = buildPreviewTools()
@@ -478,6 +566,8 @@ const localRequestPreview = computed<LabRequestPreview>(() => {
 
   return {
     messages,
+    promptSlots: enabledPromptSlots.value.map(clonePromptSlot),
+    assembledPrompt: assembledPromptText.value,
     params: {
       temperature: params.value.temperature,
       top_p: params.value.top_p,
@@ -498,9 +588,8 @@ const localRequestPreview = computed<LabRequestPreview>(() => {
     providerSpecific: providerSpecificBody.value,
     inactiveParams: inactiveParamNames.value,
     constraintSources: [
-      systemPrompt.value.trim() ? 'System Prompt' : '',
-      userPrompt.value.trim() ? 'User Prompt' : '',
-      outputContract !== undefined ? '期望输出 JSON（仅本地校验/预览）' : '',
+      ...enabledPromptSlots.value.map(slot => `${slot.title} (${slot.type}, ${slot.channel}, ${slot.source})`),
+      outputContract !== undefined ? 'Output schema validation contract' : '',
       constraintMode.value === 'api_json' ? 'API response_format: json_object' : '',
       tools.length ? 'Tools / tool_choice' : '',
       providerSpecificBody.value ? 'Provider-specific params' : '',
@@ -600,13 +689,13 @@ const thinkingWarning = computed(() => {
 })
 const selectedToolCount = computed(() => params.value.enabled_tools.length)
 const toolWarning = computed(() => {
-  if (!selectedToolCount.value) return ''
+  if (!selectedToolCount.value && !params.value.native_web_search) return ''
+  if (params.value.native_web_search && !isMimoModel.value) return 'MiMo 原生 web_search 只应在 MiMo OpenAI-compatible 模型上使用。'
   if (!supportsTools.value) return '当前模型未声明支持原生 tools，勾选工具后服务商可能忽略该参数。'
   return ''
 })
 const runDisabledReason = computed(() => {
   if (!apiAvailable.value) return '当前页面没有检测到 Electron preload API，请在桌面应用窗口中运行。'
-  if (contractError.value) return `输出结构不是合法 JSON：${contractError.value}`
   if (running.value) return '正在运行，请等待当前调用完成。'
   return ''
 })
@@ -631,9 +720,9 @@ const advancedParamSummary = computed(() => {
   return active.length ? `已设置：${active.join(', ')}` : '默认'
 })
 
-watch([systemPrompt, userPrompt, simpleStructureText], () => {
+watch(promptSlots, () => {
   templateDirty.value = Boolean(selectedTemplateId.value)
-})
+}, { deep: true })
 
 watch(sweepResults, results => {
   if (results.length && !selectedBatchRunId.value) {
@@ -682,8 +771,7 @@ function buildInput(runMode: RunMode = mode.value) {
     modelId: selectedModelId.value || undefined,
     mode: runMode,
     constraintMode: constraintMode.value,
-    systemPrompt: systemPrompt.value,
-    userPrompt: userPrompt.value,
+    promptSlots: promptSlots.value.map(clonePromptSlot),
     outputContract: toPlainClone(parsedOutputContract.value),
     params: {
       temperature: params.value.temperature,
@@ -696,9 +784,10 @@ function buildInput(runMode: RunMode = mode.value) {
       presence_penalty: params.value.presence_penalty,
       frequency_penalty: params.value.frequency_penalty,
       stop: parseStop(),
-      tool_calling: params.value.enabled_tools.length > 0,
+      tool_calling: params.value.enabled_tools.length > 0 || params.value.native_web_search,
       tool_choice: params.value.tool_choice,
       enabled_tools: [...params.value.enabled_tools],
+      native_web_search: params.value.native_web_search,
       provider_specific: {
         thinkingType: params.value.thinking_type,
       },
@@ -708,17 +797,60 @@ function buildInput(runMode: RunMode = mode.value) {
   return toPlainClone(input)
 }
 
+function clonePromptSlot(slot: PromptSlot): PromptSlot {
+  return { ...slot }
+}
+
+function buildPromptMessages(slots: PromptSlot[]): Array<{ role: PromptSlotChannel; content: string }> {
+  const messages: Array<{ role: PromptSlotChannel; content: string }> = []
+  for (const channel of promptSlotChannels) {
+    const content = slots
+      .filter(slot => slot.channel === channel)
+      .map(formatPromptSlot)
+      .join('\n\n')
+    if (content) messages.push({ role: channel, content })
+  }
+  return messages
+}
+
+function formatPromptSlot(slot: PromptSlot): string {
+  return `## ${slot.title}\n${slot.content.trim()}`
+}
+
+function movePromptSlot(slotId: string, direction: -1 | 1) {
+  const ordered = orderedPromptSlots.value
+  const index = ordered.findIndex(slot => slot.id === slotId)
+  const targetIndex = index + direction
+  if (index < 0 || targetIndex < 0 || targetIndex >= ordered.length) return
+
+  const current = ordered[index]
+  const target = ordered[targetIndex]
+  const currentOrder = current.order
+  current.order = target.order
+  target.order = currentOrder
+  promptSlots.value = [...promptSlots.value]
+}
+
+function getSlotTypeLabel(type: PromptSlotType): string {
+  const labels: Record<PromptSlotType, string> = {
+    task: 'Task',
+    output_schema: 'Output Schema',
+    skill: 'Skill',
+    agent: 'Agent',
+    tool: 'Tool',
+    constraint: 'Constraint',
+    example: 'Example',
+    memory: 'Memory',
+    custom: 'Custom',
+  }
+  return labels[type]
+}
+
 async function runOnce() {
   const api = window.agentAPI
   if (!api) {
     apiAvailable.value = false
     error.value = '当前页面没有检测到 Electron preload API，无法调用模型实验接口。请在桌面应用窗口中运行。'
-    runPhase.value = 'failed'
-    return
-  }
-
-  if (contractError.value) {
-    error.value = `输出结构不是合法 JSON：${contractError.value}`
     runPhase.value = 'failed'
     return
   }
@@ -756,11 +888,6 @@ async function runSweep() {
   if (!api) {
     apiAvailable.value = false
     error.value = '当前页面没有检测到 Electron preload API，无法执行参数扫描。请在桌面应用窗口中运行。'
-    return
-  }
-
-  if (contractError.value) {
-    error.value = `输出结构不是合法 JSON：${contractError.value}`
     return
   }
 
@@ -805,11 +932,6 @@ async function runConsistency() {
   if (!api) {
     apiAvailable.value = false
     error.value = '当前页面没有检测到 Electron preload API，无法执行一致性测试。请在桌面应用窗口中运行。'
-    return
-  }
-
-  if (contractError.value) {
-    error.value = `输出结构不是合法 JSON：${contractError.value}`
     return
   }
 
@@ -867,9 +989,7 @@ function applyTemplate() {
   }
   templateNotice.value = ''
   templateName.value = template.name
-  systemPrompt.value = template.systemPrompt
-  userPrompt.value = template.userPromptTemplate
-  simpleStructureText.value = stringify(template.outputContract)
+  promptSlots.value = template.promptSlots.map(clonePromptSlot)
   templateDirty.value = false
   templateNotice.value = `已加载方案：${template.name}`
 }
@@ -878,11 +998,6 @@ async function saveTemplate() {
   const api = window.agentAPI
   if (!api) {
     templateNotice.value = '当前页面没有检测到 Electron preload API，无法保存提示词方案。'
-    return
-  }
-
-  if (contractError.value) {
-    error.value = `输出结构不是合法 JSON：${contractError.value}`
     return
   }
 
@@ -895,8 +1010,7 @@ async function saveTemplate() {
       id: selectedTemplateId.value || undefined,
       name,
       scenario: 'research',
-      systemPrompt: systemPrompt.value,
-      userPromptTemplate: userPrompt.value,
+      promptSlots: promptSlots.value.map(clonePromptSlot),
       outputContract: toPlainClone(parsedOutputContract.value),
       responseFormat: 'json_object',
       defaultParams: {},
@@ -988,9 +1102,10 @@ function parseNumberList(value: string) {
 }
 
 function buildPreviewTools() {
-  if (!params.value.enabled_tools.length) return []
-  return builtinTools
+  const nativeTools = params.value.native_web_search ? [buildMimoNativeWebSearchTool()] : []
+  const functionTools = builtinTools
     .filter(tool => params.value.enabled_tools.includes(tool.name))
+    .filter(tool => tool.name !== 'web_search' || !params.value.native_web_search)
     .map(tool => ({
       type: 'function',
       function: {
@@ -999,6 +1114,22 @@ function buildPreviewTools() {
         parameters: tool.parameters,
       },
     }))
+  return [...nativeTools, ...functionTools]
+}
+
+function buildMimoNativeWebSearchTool() {
+  return {
+    type: 'web_search',
+    max_keyword: 3,
+    force_search: true,
+    limit: 1,
+    user_location: {
+      type: 'approximate',
+      country: 'China',
+      region: 'Hubei',
+      city: 'Wuhan',
+    },
+  }
 }
 
 function isToolEnabled(name: string) {
@@ -1114,7 +1245,7 @@ function toPlainClone<T>(value: T): T {
             <p class="eyebrow">Input</p>
             <h2>提示词与输出结构</h2>
           </div>
-          <button class="secondary-button" type="button" :disabled="savingTemplate || Boolean(contractError)" @click="saveTemplate">
+          <button class="secondary-button" type="button" :disabled="savingTemplate" @click="saveTemplate">
             {{ savingTemplate ? '保存中...' : selectedTemplateId ? (templateDirty ? '保存方案*' : '保存方案') : '保存为方案' }}
           </button>
         </div>
@@ -1138,27 +1269,46 @@ function toPlainClone<T>(value: T): T {
         </div>
         <p v-if="templateNotice" class="notice-note">{{ templateNotice }}</p>
 
-        <label>
-          <span>System Prompt</span>
-          <textarea v-model="systemPrompt" rows="6" />
-        </label>
-        <label>
-          <span>User Prompt</span>
-          <textarea v-model="userPrompt" rows="6" />
-        </label>
+        <div class="slot-list">
+          <article
+            v-for="(slot, index) in orderedPromptSlots"
+            :key="slot.id"
+            class="slot-card"
+            :class="{ disabled: !slot.enabled }"
+          >
+            <div class="slot-header">
+              <div>
+                <strong>{{ slot.title }}</strong>
+                <span>{{ getSlotTypeLabel(slot.type) }} · {{ slot.channel }} · {{ slot.source }}</span>
+              </div>
+              <div class="slot-actions">
+                <label class="slot-toggle">
+                  <input v-model="slot.enabled" type="checkbox" />
+                  <span>{{ slot.enabled ? 'Enabled' : 'Disabled' }}</span>
+                </label>
+                <button type="button" :disabled="index === 0" @click="movePromptSlot(slot.id, -1)">↑</button>
+                <button type="button" :disabled="index === orderedPromptSlots.length - 1" @click="movePromptSlot(slot.id, 1)">↓</button>
+              </div>
+            </div>
 
-        <div class="schema-toolbar">
-          <div>
-            <strong>期望输出 JSON</strong>
-            <p>这里只写模型最终需要返回的字段形状。string / number / boolean 是类型占位，不是固定内容。</p>
-          </div>
+            <label>
+              <span>Channel</span>
+              <select v-model="slot.channel">
+                <option v-for="channel in promptSlotChannels" :key="channel" :value="channel">
+                  {{ channel }}
+                </option>
+              </select>
+            </label>
+
+            <label>
+              <span>Slot Content</span>
+              <textarea v-model="slot.content" :rows="slot.type === 'output_schema' ? 12 : 6" spellcheck="false" />
+            </label>
+          </article>
         </div>
-
-        <label>
-          <span>期望输出 JSON</span>
-          <textarea v-model="simpleStructureText" rows="12" spellcheck="false" />
-        </label>
-        <p v-if="contractError" class="inline-error">{{ contractError }}</p>
+        <p class="notice-note">
+          {{ outputContractMode === 'json_validation' ? '当前内容可解析为 JSON，将用于本地输出校验。' : '当前内容作为提示词发送，不做 JSON 结构校验。' }}
+        </p>
       </section>
 
       <aside class="lab-panel params-panel">
@@ -1241,9 +1391,16 @@ function toPlainClone<T>(value: T): T {
         <details class="advanced-box">
           <summary>工具调用实验</summary>
           <p class="muted">勾选的工具会进入接口 `tools` 参数，并在请求预览里展示。</p>
+          <label class="check-row">
+            <input v-model="params.native_web_search" type="checkbox" />
+            <span>
+              <b>MiMo native web_search</b>
+              原生联网搜索工具，MiMo OpenAI-compatible 专用
+            </span>
+          </label>
           <label>
             <span>tool_choice</span>
-            <select v-model="params.tool_choice" :disabled="selectedToolCount === 0">
+            <select v-model="params.tool_choice" :disabled="selectedToolCount === 0 && !params.native_web_search">
               <option value="auto">auto</option>
               <option value="none">none</option>
               <option value="required">required</option>
@@ -1272,8 +1429,8 @@ function toPlainClone<T>(value: T): T {
             </section>
           </div>
           <p v-if="toolWarning" class="warning-note">{{ toolWarning }}</p>
-          <p class="notice-note">当前选择 {{ selectedToolCount }} 个工具；请求预览会展示最终 tools 数组。</p>
-          <p class="muted">CLI 和文件增删改查第一版只注入工具 schema 和 mock result，不执行真实命令或文件操作。</p>
+          <p class="notice-note">当前选择 {{ selectedToolCount + (params.native_web_search ? 1 : 0) }} 个工具；请求预览会展示最终 tools 数组。</p>
+          <p class="muted">mock/function 工具只注入 schema 和 mock result；MiMo native web_search 会按服务商原生工具形状发送。</p>
         </details>
 
         <details open class="advanced-box">
@@ -1312,12 +1469,25 @@ function toPlainClone<T>(value: T): T {
           预计不生效参数：{{ requestPreview.inactiveParams.join(', ') }}
         </p>
 
+        <div class="slot-preview">
+          <article v-for="slot in requestPreview.promptSlots" :key="slot.id">
+            <div>
+              <strong>{{ slot.title }}</strong>
+              <span>{{ getSlotTypeLabel(slot.type) }} · {{ slot.channel }} · {{ slot.source }} · order {{ slot.order }}</span>
+            </div>
+            <pre>{{ slot.content }}</pre>
+          </article>
+        </div>
+
         <div class="message-preview">
           <article v-for="message in requestPreview.messages" :key="message.role + message.content.slice(0, 16)">
             <strong>{{ message.role }}</strong>
             <pre>{{ message.content }}</pre>
           </article>
         </div>
+
+        <h3>组装后 Prompt</h3>
+        <pre class="request-json">{{ requestPreview.assembledPrompt }}</pre>
 
         <h3>最终请求 JSON</h3>
         <pre class="request-json">{{ stringify(requestPreview.finalRequestJson) }}</pre>
@@ -1857,6 +2027,63 @@ button.active {
   margin: 3px 0 0;
   color: var(--text-secondary);
   font-size: 0.78rem;
+}
+
+.slot-list,
+.slot-preview {
+  display: grid;
+  gap: 10px;
+}
+
+.slot-card,
+.slot-preview article {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.slot-card.disabled {
+  opacity: 0.62;
+}
+
+.slot-header,
+.slot-preview article > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+}
+
+.slot-header strong,
+.slot-preview strong {
+  display: block;
+}
+
+.slot-header span,
+.slot-preview span {
+  color: var(--text-secondary);
+  font-size: 0.76rem;
+}
+
+.slot-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.slot-actions button {
+  min-width: 32px;
+  padding: 4px 8px;
+}
+
+.slot-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
 }
 
 .segmented-control {

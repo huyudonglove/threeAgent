@@ -33,8 +33,8 @@ export interface ToolCall {
   }
 }
 
-/** 工具定义 */
-export interface ToolDefinition {
+/** Function 工具定义 */
+export interface FunctionToolDefinition {
   type: 'function'
   function: {
     name: string
@@ -42,6 +42,22 @@ export interface ToolDefinition {
     parameters: Record<string, unknown>
   }
 }
+
+/** Provider-native web search 工具定义 */
+export interface WebSearchToolDefinition {
+  type: 'web_search'
+  max_keyword?: number
+  force_search?: boolean
+  limit?: number
+  user_location?: {
+    type: 'approximate'
+    country?: string
+    region?: string
+    city?: string
+  }
+}
+
+export type ToolDefinition = FunctionToolDefinition | WebSearchToolDefinition
 
 export type ToolChoice =
   | 'auto'

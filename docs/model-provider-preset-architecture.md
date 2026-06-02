@@ -40,7 +40,7 @@ One provider can own multiple models.
 
 Examples:
 
-- One MiMo provider with one API key can expose `mimo-v2.5-pro`, `mimo-v2.5`, and `mimo-v2.5-flash`.
+- One MiMo provider with one API key can expose `mimo-v2.5-pro` and `mimo-v2.5`.
 - One OpenAI-compatible provider can expose both a high-quality model and a fast/cheap model.
 - Scenario bindings can point different roles to different models under the same provider.
 

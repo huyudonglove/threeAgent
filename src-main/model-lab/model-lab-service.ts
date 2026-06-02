@@ -1,4 +1,4 @@
-// src-main/model-lab/model-lab-service.ts
+﻿// src-main/model-lab/model-lab-service.ts
 // 模型输出实验服务：不创建正式任务，只用于诊断模型行为。
 
 import type { AppPathResolver } from '../storage/app-path-resolver'
@@ -62,7 +62,8 @@ export class ModelLabService {
     }
 
     const shouldParse = shouldParseJson(input.constraintMode)
-    const validation = this.validator.validate(invokeResult.data.content, input.outputContract, shouldParse)
+    const outputContract = normalizeOutputContract(input.outputContract)
+    const validation = this.validator.validate(invokeResult.data.content, outputContract, shouldParse)
     const toolCalls = attachMockToolResults(invokeResult.data.toolCalls, input)
     const result: ModelLabInvokeResult = {
       runId,
@@ -130,7 +131,8 @@ export class ModelLabService {
 
     const rawOutput = chunks.join('')
     const shouldParse = shouldParseJson(input.constraintMode)
-    const validation = this.validator.validate(rawOutput, input.outputContract, shouldParse)
+    const outputContract = normalizeOutputContract(input.outputContract)
+    const validation = this.validator.validate(rawOutput, outputContract, shouldParse)
     const result: ModelLabInvokeResult = {
       runId,
       rawOutput,
@@ -272,6 +274,7 @@ export class ModelLabService {
 
   private buildRequestPreview(input: ModelLabInvokeInput, mode: 'blocking' | 'stream'): ModelLabRequestPreview {
     const modelInput = this.toModelInvokeInput(input, mode)
+    const prompt = this.promptBuilder.build(input)
     const params = input.params ?? {}
     const responseFormat = modelInput.responseFormat === 'legacy_text'
       ? undefined
@@ -303,6 +306,8 @@ export class ModelLabService {
         content: message.content,
         name: message.name,
       })),
+      promptSlots: prompt.enabledSlots,
+      assembledPrompt: prompt.assembledPrompt,
       params: {
         temperature: params.temperature,
         top_p: params.top_p,
@@ -332,6 +337,7 @@ export class ModelLabService {
       modelId: input.modelId,
       mode,
       constraintMode: input.constraintMode,
+      promptSlots: input.promptSlots,
       params: {
         ...(input.params ?? {}),
       },
@@ -349,7 +355,7 @@ export class ModelLabService {
       rawOutput: '',
       requestPreview: this.buildRequestPreview(input, input.mode),
       inputSnapshot: this.buildInputSnapshot(input, input.mode),
-      validation: this.validator.validate('', input.outputContract, shouldParseJson(input.constraintMode)).validation,
+      validation: this.validator.validate('', normalizeOutputContract(input.outputContract), shouldParseJson(input.constraintMode)).validation,
       metrics: {
         latencyMs,
         firstTokenMs: null,
@@ -382,11 +388,23 @@ function shouldParseJson(mode: ModelLabConstraintMode): boolean {
   return mode === 'prompt_json' || mode === 'api_json'
 }
 
+function normalizeOutputContract(contract: unknown): unknown {
+  if (typeof contract !== 'string') return contract
+  const trimmed = contract.trim()
+  if (!trimmed) return undefined
+  try {
+    return JSON.parse(trimmed)
+  } catch {
+    return undefined
+  }
+}
+
 function buildConstraintSources(input: ModelLabInvokeInput, modelInput: ModelInvokeInput): string[] {
   const sources: string[] = []
-  if (input.systemPrompt.trim()) sources.push('System Prompt')
-  if (input.userPrompt.trim()) sources.push('User Prompt')
-  if (input.outputContract !== undefined) sources.push('期望输出 JSON（仅本地校验/预览，不自动注入 prompt）')
+  for (const slot of input.promptSlots.filter(slot => slot.enabled && slot.content.trim()).sort((a, b) => a.order - b.order)) {
+    sources.push(`${slot.title} (${slot.type}, ${slot.channel}, ${slot.source})`)
+  }
+  if (input.outputContract !== undefined) sources.push('Output schema validation contract')
   if (modelInput.responseFormat === 'json_object') sources.push('API response_format: json_object')
   if (modelInput.tools?.length) sources.push('Tools / tool_choice')
   if (modelInput.providerSpecific) sources.push('Provider-specific params')
@@ -420,11 +438,26 @@ function buildToolDefinitions(input: ModelLabInvokeInput): ToolDefinition[] {
   const params = input.params ?? {}
 
   const enabledNames = params.enabled_tools ?? (params.tool_calling ? ['calculator', 'current_time', 'json_validator'] : [])
-  if (!enabledNames.length) return []
-
-  const builtinTools = getBuiltinLabTools().filter(tool => enabledNames.includes(tool.name))
+  const nativeTools = params.native_web_search ? [buildMimoNativeWebSearchTool()] : []
+  const functionToolNames = enabledNames.filter(name => name !== 'web_search' || !params.native_web_search)
+  const builtinTools = getBuiltinLabTools().filter(tool => functionToolNames.includes(tool.name))
   const customTools = (params.custom_tools ?? []).filter(tool => enabledNames.includes(tool.name))
-  return [...builtinTools, ...customTools].map(toToolDefinition)
+  return [...nativeTools, ...builtinTools.map(toToolDefinition), ...customTools.map(toToolDefinition)]
+}
+
+function buildMimoNativeWebSearchTool(): ToolDefinition {
+  return {
+    type: 'web_search',
+    max_keyword: 3,
+    force_search: true,
+    limit: 1,
+    user_location: {
+      type: 'approximate',
+      country: 'China',
+      region: 'Hubei',
+      city: 'Wuhan',
+    },
+  }
 }
 
 function getBuiltinLabTools(): ModelLabToolDefinition[] {
@@ -493,6 +526,39 @@ function getBuiltinLabTools(): ModelLabToolDefinition[] {
       mockResult: {
         results: [
           { title: 'Mock result', summary: '这是固定模拟搜索结果，不代表真实网络内容。' },
+        ],
+      },
+    },
+    {
+      name: 'web_search',
+      description: 'Generate web_search tool call parameters. The model lab returns a mock result and does not execute network access.',
+      builtin: true,
+      parameters: {
+        type: 'object',
+        required: ['query'],
+        properties: {
+          query: { type: 'string', description: 'Search query.' },
+          type: { type: 'string', enum: ['web_search'], default: 'web_search' },
+          max_keyword: { type: 'number', default: 3, minimum: 1 },
+          force_search: { type: 'boolean', default: true },
+          limit: { type: 'number', default: 1, minimum: 1 },
+          user_location: {
+            type: 'object',
+            properties: {
+              type: { type: 'string', enum: ['approximate'], default: 'approximate' },
+              country: { type: 'string', default: 'China' },
+              region: { type: 'string', default: 'Hubei' },
+              city: { type: 'string', default: 'Wuhan' },
+            },
+          },
+        },
+      },
+      mockResult: {
+        mode: 'mock',
+        operation: 'web_search',
+        applied: false,
+        results: [
+          { title: 'Mock web result', url: 'https://example.com', summary: 'Mock web_search result; no network request was executed.' },
         ],
       },
     },

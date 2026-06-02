@@ -257,15 +257,6 @@ const BUILTIN_PRESETS: ProviderPreset[] = [
         supportsReasoning: true,
         supportsToolCall: true,
       },
-      {
-        id: 'mimo-v2.5-flash',
-        modelName: 'mimo-v2.5-flash',
-        displayName: 'MiMo V2.5 Flash',
-        capabilities: ['chat', 'completion'],
-        contextWindow: 256000,
-        supportsReasoning: false,
-        supportsToolCall: true,
-      },
     ],
   },
 ]

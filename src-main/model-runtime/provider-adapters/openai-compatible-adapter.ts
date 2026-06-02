@@ -52,10 +52,7 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
       reasoning_effort: input.reasoningEffort && input.reasoningEffort !== 'auto'
         ? input.reasoningEffort
         : undefined,
-      tools: input.tools?.length ? input.tools.map(t => ({
-        type: t.type,
-        function: t.function,
-      })) : undefined,
+      tools: formatTools(input.tools),
       tool_choice: input.toolChoice,
       response_format: input.responseFormat === 'legacy_text'
         ? undefined
@@ -149,10 +146,7 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
       reasoning_effort: input.reasoningEffort && input.reasoningEffort !== 'auto'
         ? input.reasoningEffort
         : undefined,
-      tools: input.tools?.length ? input.tools.map(t => ({
-        type: t.type,
-        function: t.function,
-      })) : undefined,
+      tools: formatTools(input.tools),
       tool_choice: input.toolChoice,
       response_format: input.responseFormat === 'legacy_text'
         ? undefined
@@ -322,4 +316,17 @@ function formatChatMessage(message: ChatMessage): Record<string, unknown> {
   }
 
   return formatted
+}
+
+function formatTools(tools: ModelInvokeInput['tools']): Array<Record<string, unknown>> | undefined {
+  if (!tools?.length) return undefined
+  return tools.map(tool => {
+    if (tool.type === 'function') {
+      return {
+        type: tool.type,
+        function: tool.function,
+      }
+    }
+    return { ...tool }
+  })
 }

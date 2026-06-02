@@ -8,6 +8,7 @@ import path from 'node:path'
 import os from 'node:os'
 import { ModelConfigManager } from '../../src-main/model-config/model-config-manager'
 import { AppPathResolver } from '../../src-main/storage/app-path-resolver'
+import { getBuiltinProviderPresets } from '../../src-main/model-config/provider-presets'
 import type { ModelProviderConfig, ModelProfileConfig, ModelBindingConfig } from '../../src-main/model-config/contracts'
 
 describe('ModelConfigManager (App-level)', () => {
@@ -196,18 +197,18 @@ describe('ModelConfigManager (App-level)', () => {
       contextWindow: 1000000,
       enabled: true,
     })
-    const flash = await manager.addAppModel({
-      id: 'model-mimo-flash',
+    const base = await manager.addAppModel({
+      id: 'model-mimo-base',
       providerId: 'mimo',
-      modelName: 'mimo-v2.5-flash',
-      displayName: 'MiMo V2.5 Flash',
-      capabilities: ['chat'],
-      contextWindow: 256000,
+      modelName: 'mimo-v2.5',
+      displayName: 'MiMo V2.5',
+      capabilities: ['chat', 'reasoning'],
+      contextWindow: 1000000,
       enabled: true,
     })
 
     expect(pro.ok).toBe(true)
-    expect(flash.ok).toBe(true)
+    expect(base.ok).toBe(true)
 
     await manager.addAppBinding({
       id: 'binding-planning',
@@ -221,7 +222,7 @@ describe('ModelConfigManager (App-level)', () => {
     await manager.addAppBinding({
       id: 'binding-summary',
       role: 'summary',
-      modelId: 'model-mimo-flash',
+      modelId: 'model-mimo-base',
       providerId: 'mimo',
       scope: 'global',
       priority: 1,
@@ -233,8 +234,18 @@ describe('ModelConfigManager (App-level)', () => {
     if (config.ok) {
       expect(config.data.models.filter(m => m.providerId === 'mimo')).toHaveLength(2)
       expect(config.data.bindings.find(b => b.role === 'planning')?.modelId).toBe('model-mimo-pro')
-      expect(config.data.bindings.find(b => b.role === 'summary')?.modelId).toBe('model-mimo-flash')
+      expect(config.data.bindings.find(b => b.role === 'summary')?.modelId).toBe('model-mimo-base')
     }
+  })
+
+  it('MiMo token-plan-cn preset 不推荐 unsupported flash 或 TTS 模型作为普通聊天模型', () => {
+    const mimo = getBuiltinProviderPresets().find(p => p.id === 'mimo')
+    expect(mimo).toBeTruthy()
+    const modelNames = mimo?.recommendedModels.map(model => model.modelName) ?? []
+
+    expect(modelNames).toEqual(['mimo-v2.5-pro', 'mimo-v2.5'])
+    expect(modelNames).not.toContain('mimo-v2.5-flash')
+    expect(modelNames.some(name => name.includes('-tts'))).toBe(false)
   })
 
   it('updateAppModel 修改字段', async () => {

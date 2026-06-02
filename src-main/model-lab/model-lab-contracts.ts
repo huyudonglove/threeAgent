@@ -6,6 +6,29 @@ import type { UnifiedError } from '../errors/unified-error'
 
 export type ModelLabMode = 'blocking' | 'stream'
 export type ModelLabConstraintMode = 'loose_text' | 'prompt_json' | 'api_json' | 'legacy_text'
+export type PromptSlotType =
+  | 'task'
+  | 'output_schema'
+  | 'skill'
+  | 'agent'
+  | 'tool'
+  | 'constraint'
+  | 'example'
+  | 'memory'
+  | 'custom'
+export type PromptSlotSource = 'manual' | 'built_in' | 'saved_template' | 'generated'
+export type PromptSlotChannel = 'system' | 'user' | 'assistant' | 'tool'
+
+export interface PromptSlot {
+  id: string
+  type: PromptSlotType
+  title: string
+  enabled: boolean
+  order: number
+  content: string
+  source: PromptSlotSource
+  channel: PromptSlotChannel
+}
 
 export interface ModelLabParams {
   temperature?: number
@@ -21,6 +44,7 @@ export interface ModelLabParams {
   tool_calling?: boolean
   tool_choice?: ToolChoice
   enabled_tools?: string[]
+  native_web_search?: boolean
   custom_tools?: ModelLabToolDefinition[]
   provider_specific?: ModelLabProviderSpecificParams
 }
@@ -39,6 +63,8 @@ export interface ModelLabToolDefinition {
 
 export interface ModelLabRequestPreview {
   messages: Array<{ role: string; content: string; name?: string }>
+  promptSlots: PromptSlot[]
+  assembledPrompt: string
   params: Record<string, unknown>
   responseFormat?: 'json_object' | 'legacy_text'
   tools?: ToolDefinition[]
@@ -54,6 +80,7 @@ export interface ModelLabInputSnapshot {
   modelId?: string
   mode: ModelLabMode
   constraintMode: ModelLabConstraintMode
+  promptSlots: PromptSlot[]
   params: ModelLabParams
 }
 
@@ -62,8 +89,7 @@ export interface ModelLabInvokeInput {
   modelId?: string
   mode: ModelLabMode
   constraintMode: ModelLabConstraintMode
-  systemPrompt: string
-  userPrompt: string
+  promptSlots: PromptSlot[]
   outputContract?: unknown
   params?: ModelLabParams
   persistRun?: boolean
@@ -162,8 +188,7 @@ export interface PromptTemplateRecord {
   id: string
   name: string
   scenario: 'task_understanding' | 'research' | 'implementation' | 'review' | 'custom'
-  systemPrompt: string
-  userPromptTemplate: string
+  promptSlots: PromptSlot[]
   outputContract: unknown
   responseFormat: 'json_object' | 'legacy_text'
   defaultParams: ModelLabParams
